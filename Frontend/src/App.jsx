@@ -2,10 +2,12 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login";
 import Pos from "./pages/Pos";
 import Cocina from "./pages/Cocina";
-import Admin from "./pages/Admin";
+import Admin from "./pages/admin/Admin";
+
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import { AuthProvider } from "./context/AuthContext";
+import ProductoModificadoresAdmin from "./pages/admin/ProductoModificadoresAdmin";
 
 export default function App() {
   return (
@@ -37,6 +39,14 @@ export default function App() {
             element={
               <ProtectedRoute roles={["admin", "supervisor"]}>
                 <Admin />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/productos/:id/modificadores"
+            element={
+              <ProtectedRoute roles={["admin", "supervisor"]}>
+                <ProductoModificadoresAdmin />
               </ProtectedRoute>
             }
           />

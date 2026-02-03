@@ -5,6 +5,9 @@ import dotenv from "dotenv";
 import { Server } from "socket.io";
 
 import authRoutes from "./routes/auth.js";
+import categoriasRoutes from "./routes/categorias.js";
+import productosRoutes from "./routes/productos.js";
+import modificadoresRoutes from "./routes/modificadores.js";
 
 dotenv.config();
 
@@ -14,6 +17,9 @@ app.use(express.json());
 
 // Si luego usas uploads locales:
 app.use("/uploads", express.static("uploads"));
+app.use("/api/categorias", categoriasRoutes);
+app.use("/api/productos", productosRoutes);
+app.use("/api/modificadores", modificadoresRoutes);
 
 const server = http.createServer(app);
 

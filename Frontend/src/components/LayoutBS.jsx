@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Offcanvas, Navbar, Container, Button, Badge, Nav } from "react-bootstrap";
+import {
+  Offcanvas,
+  Navbar,
+  Container,
+  Button,
+  Badge,
+  Nav,
+} from "react-bootstrap";
 import { NavLink, useNavigate } from "react-router-dom";
 import { socket } from "../socket";
 import {
@@ -11,97 +18,154 @@ import {
   FaChevronRight,
 } from "react-icons/fa";
 
-import "./LayoutBS.css";
-
-
-export default function LayoutBS({ title, children, badgeNew = 0, badgeReady = 0 }) {
+export default function LayoutBS({
+  title,
+  children,
+  badgeNew = 0,
+  badgeReady = 0,
+}) {
   const [show, setShow] = useState(false);
   const navigate = useNavigate();
 
-  // 👇 Mejor: leer usuario en cada render (así se actualiza si cambia storage)
+  // ✅ leer user de storage de forma segura (sin useMemo raro)
   const user = useMemo(() => {
-    try { return JSON.parse(localStorage.getItem("user") || "null"); }
-    catch { return null; }
-  }, [localStorage.getItem("user")]); // eslint-disable-line
+    try {
+      const u = localStorage.getItem("user") || sessionStorage.getItem("user");
+      return u ? JSON.parse(u) : null;
+    } catch {
+      return null;
+    }
+  }, []);
 
-  const rol = user?.rol;
+  const rol = user?.rol || "sin rol";
 
-  const links = [
-    { to: "/admin", label: "Dashboard", icon: <FaChartPie />, roles: ["admin", "supervisor"], badge: 0, badgeType: "none" },
-    { to: "/pos", label: "POS (Cajero)", icon: <FaCashRegister />, roles: ["admin", "cajero", "supervisor"], badge: badgeReady, badgeType: "success" },
-    { to: "/cocina", label: "Cocina (KDS)", icon: <FaUtensils />, roles: ["admin", "cocina", "supervisor"], badge: badgeNew, badgeType: "danger" },
-  ].filter((l) => l.roles.includes(rol));
+  // ✅ links por rol
+  const linksAll = [
+    {
+      to: "/admin",
+      label: "Dashboard",
+      icon: <FaChartPie />,
+      roles: ["admin", "supervisor"],
+      badge: 0,
+      badgeVariant: "secondary",
+    },
+    {
+      to: "/pos",
+      label: "POS (Cajero)",
+      icon: <FaCashRegister />,
+      roles: ["admin", "cajero", "supervisor"],
+      badge: badgeReady,
+      badgeVariant: "success",
+    },
+    {
+      to: "/cocina",
+      label: "Cocina (KDS)",
+      icon: <FaUtensils />,
+      roles: ["admin", "cocina", "supervisor"],
+      badge: badgeNew,
+      badgeVariant: "danger",
+    },
+  ];
+
+  const links = linksAll.filter((l) => l.roles.includes(rol));
 
   const logout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
-    try { socket.disconnect(); } catch {}
-    navigate("/login", { replace: true });
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("user");
+    try {
+      socket.disconnect();
+    } catch {}
+    navigate("/", { replace: true });
   };
 
+  // ✅ cerrar con ESC el offcanvas
   useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && setShow(false);
+    const onKey = (e) => {
+      if (e.key === "Escape") setShow(false);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const LinkItem = ({ to, icon, label, badge, badgeType }) => (
+  const LinkItem = ({ to, icon, label, badge, badgeVariant }) => (
     <Nav.Link
       as={NavLink}
       to={to}
-      onClick={() => setShow(false)}
-      className={({ isActive }) => `sb-link ${isActive ? "active" : ""}`}
       end
+      onClick={() => setShow(false)}
+      className={({ isActive }) =>
+        [
+          "d-flex align-items-center justify-content-between",
+          "px-3 py-2 rounded-3",
+          "text-decoration-none",
+          isActive ? "bg-dark text-white" : "text-dark",
+        ].join(" ")
+      }
     >
-      <span className="sb-left">
-        <span className="sb-ico">{icon}</span>
-        <span className="sb-label">{label}</span>
+      <span className="d-flex align-items-center gap-2">
+        <span
+          className="d-inline-flex align-items-center justify-content-center"
+          style={{ width: 18 }}
+        >
+          {icon}
+        </span>
+        <span className="fw-semibold">{label}</span>
       </span>
 
-      <span className="sb-right">
+      <span className="d-flex align-items-center gap-2">
         {badge > 0 && (
-          <Badge
-            pill
-            className={`sb-badge ${badgeType === "danger" ? "danger" : "success"}`}
-          >
+          <Badge bg={badgeVariant} pill>
             {badge}
           </Badge>
         )}
-        <span className="sb-chevron"><FaChevronRight /></span>
+        <FaChevronRight style={{ opacity: 0.6 }} />
       </span>
     </Nav.Link>
   );
 
   return (
-    <div className="app-shell">
-      {/* Topbar */}
-      <Navbar className="topbar" expand={false}>
-        <Container fluid className="topbar-inner">
+    <div className="bg-light" style={{ minHeight: "100vh" }}>
+      {/* ===== TOPBAR ===== */}
+      <Navbar bg="light" className="border-bottom sticky-top">
+        <Container
+          fluid
+          className="d-flex align-items-center justify-content-between"
+        >
           <div className="d-flex align-items-center gap-2">
             <Button
-              className="icon-btn d-lg-none"
-              variant="light"
+              variant="outline-dark"
+              className="d-lg-none"
               onClick={() => setShow(true)}
               aria-label="Abrir menú"
             >
               <FaBars />
             </Button>
 
-            <div className="brand-wrap">
-              <div className="brand">Sistema Cocina</div>
-              <div className="brand-sub">{title}</div>
+            <div className="d-flex flex-column">
+              <span className="fw-bold">Sistema Cocina</span>
+              <span className="text-muted" style={{ fontSize: 12 }}>
+                {title}
+              </span>
             </div>
           </div>
 
           <div className="d-flex align-items-center gap-3">
-            <div className="userbox d-none d-sm-flex">
-              <div className="user-meta">
-                <div className="user-name">{user?.nombre || "Usuario"}</div>
-                <div className="user-role">{rol || "sin rol"}</div>
+            <div className="d-none d-md-block text-end">
+              <div className="fw-bold" style={{ lineHeight: 1.1 }}>
+                {user?.nombre || "Usuario"}
+              </div>
+              <div className="text-muted" style={{ fontSize: 12 }}>
+                {rol}
               </div>
             </div>
 
-            <Button className="logout-btn d-none d-sm-inline-flex" variant="light" onClick={logout}>
+            <Button
+              variant="outline-danger"
+              className="d-none d-sm-inline-flex"
+              onClick={logout}
+            >
               <FaSignOutAlt className="me-2" />
               Salir
             </Button>
@@ -109,49 +173,57 @@ export default function LayoutBS({ title, children, badgeNew = 0, badgeReady = 0
         </Container>
       </Navbar>
 
-      <Container fluid className="main-wrap">
-        <div className="row g-0">
-          {/* Sidebar desktop */}
+      {/* ===== MAIN GRID ===== */}
+      <Container fluid className="py-3">
+        <div className="row g-3">
+          {/* ===== SIDEBAR DESKTOP ===== */}
           <div className="col-lg-3 col-xl-2 d-none d-lg-block">
-            <aside className="sidebar">
-              <div className="sb-header">
-                <div className="sb-title">Menú</div>
-                <div className="sb-sub">Accesos por rol</div>
+            <div
+              className="bg-white border rounded-4 p-2 shadow-sm position-sticky"
+              style={{ top: 72 }}
+            >
+              <div className="px-3 pt-2 pb-2">
+                <div className="fw-bold">Menú</div>
+                <div className="text-muted" style={{ fontSize: 12 }}>
+                  Accesos por rol
+                </div>
               </div>
 
-              <Nav className="sb-nav">
+              <Nav className="d-grid gap-2 px-2 pb-2">
                 {links.map((l) => (
                   <LinkItem key={l.to} {...l} />
                 ))}
               </Nav>
 
-              <div className="sb-footer">
-                <div className="sb-user">
-                  <div className="sb-user-name">{user?.nombre || "Usuario"}</div>
-                  <div className="sb-user-role">{rol || ""}</div>
+              <div className="border-top px-3 py-3">
+                <div className="fw-bold">{user?.nombre || "Usuario"}</div>
+                <div className="text-muted" style={{ fontSize: 12 }}>
+                  {rol}
                 </div>
 
-                <Button className="sb-logout" variant="light" onClick={logout}>
+                <Button
+                  variant="outline-danger"
+                  className="w-100 mt-3"
+                  onClick={logout}
+                >
                   <FaSignOutAlt className="me-2" />
                   Cerrar sesión
                 </Button>
               </div>
-            </aside>
+            </div>
           </div>
 
-          {/* Content */}
-          <div className="col-lg-9 col-xl-10">
-            <div className="content">
-              <div className="content-inner">
-                {children}
-              </div>
+          {/* ===== CONTENT ===== */}
+          <div className="col-12 col-lg-9 col-xl-10">
+            <div className="mx-auto" style={{ maxWidth: 1100 }}>
+              {children}
             </div>
           </div>
         </div>
       </Container>
 
-      {/* Sidebar móvil */}
-      <Offcanvas show={show} onHide={() => setShow(false)} placement="start" className="offcanvas-sleek">
+      {/* ===== SIDEBAR MOVIL (OFFCANVAS) ===== */}
+      <Offcanvas show={show} onHide={() => setShow(false)} placement="start">
         <Offcanvas.Header closeButton>
           <Offcanvas.Title className="fw-bold">Sistema Cocina</Offcanvas.Title>
         </Offcanvas.Header>
@@ -159,7 +231,9 @@ export default function LayoutBS({ title, children, badgeNew = 0, badgeReady = 0
         <Offcanvas.Body>
           <div className="mb-3">
             <div className="fw-bold">{user?.nombre || "Usuario"}</div>
-            <div className="text-muted" style={{ fontSize: 12 }}>{rol || "sin rol"}</div>
+            <div className="text-muted" style={{ fontSize: 12 }}>
+              {rol}
+            </div>
           </div>
 
           <Nav className="d-grid gap-2">
@@ -168,7 +242,11 @@ export default function LayoutBS({ title, children, badgeNew = 0, badgeReady = 0
             ))}
           </Nav>
 
-          <Button className="w-100 mt-3" variant="light" onClick={logout}>
+          <Button
+            variant="outline-danger"
+            className="w-100 mt-3"
+            onClick={logout}
+          >
             <FaSignOutAlt className="me-2" />
             Cerrar sesión
           </Button>

@@ -21,18 +21,37 @@ const upload = multer({ storage });
 router.get("/", auth, async (req, res) => {
   const en_menu = req.query.en_menu;
   const activo = req.query.activo;
+  const categoria_id = req.query.categoria_id;
 
   let where = "1=1";
   const params = [];
-  if (en_menu !== undefined) { where += " AND en_menu=?"; params.push(Number(en_menu)); }
-  if (activo !== undefined) { where += " AND activo=?"; params.push(Number(activo)); }
+
+  if (en_menu !== undefined) {
+    where += " AND p.en_menu=?";
+    params.push(Number(en_menu));
+  }
+  if (activo !== undefined) {
+    where += " AND p.activo=?";
+    params.push(Number(activo));
+  }
+  if (categoria_id !== undefined) {
+    where += " AND p.categoria_id=?";
+    params.push(Number(categoria_id));
+  }
 
   const [rows] = await db.query(
-    `SELECT * FROM productos WHERE ${where} ORDER BY created_at DESC`,
-    params
+    `SELECT p.*, c.nombre AS categoria_nombre, c.orden AS categoria_orden
+     FROM productos p
+     INNER JOIN categorias c ON c.id = p.categoria_id
+     WHERE ${where}
+     ORDER BY c.orden ASC, p.nombre ASC`,
+    params,
   );
+
   res.json(rows);
 });
+
+
 
 // ✅ Crear producto (admin)
 router.post("/", auth, allowRoles("admin"), async (req, res) => {
@@ -66,5 +85,31 @@ router.post("/:id/imagen", auth, allowRoles("admin"), upload.single("imagen"), a
   );
   res.json({ ok: true, imagen_url: url });
 });
+
+// ✅ Eliminar producto (solo admin)
+router.delete("/:id", auth, allowRoles("admin"), async (req, res) => {
+  const conn = await db.getConnection();
+  try {
+    const id = req.params.id;
+
+    await conn.beginTransaction();
+
+    // 1) quitar asignaciones de modificadores (si existen)
+    await conn.query(`DELETE FROM producto_modificadores WHERE producto_id=?`, [id]);
+
+    // 2) borrar producto
+    await conn.query(`DELETE FROM productos WHERE id=?`, [id]);
+
+    await conn.commit();
+    res.json({ ok: true });
+  } catch (err) {
+    await conn.rollback();
+    console.error("DELETE /productos/:id error:", err);
+    res.status(500).json({ message: "Error al eliminar producto" });
+  } finally {
+    conn.release();
+  }
+});
+
 
 export default router;
