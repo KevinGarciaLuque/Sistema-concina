@@ -1,40 +1,18 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import LayoutBS from "../../components/LayoutBS";
-
 import CategoriasAdmin from "./CategoriasAdmin.jsx";
 import ProductosAdmin from "./ProductosAdmin.jsx";
-import ModificadoresAdmin from "./Modificadores.jsx"; // ✅ ESTE ES EL BUENO
+import ModificadoresAdmin from "./Modificadores.jsx";
 import ProductoModificadoresAdmin from "./ProductoModificadoresAdmin.jsx";
 
 import { FaTags, FaBoxOpen, FaSlidersH, FaLink } from "react-icons/fa";
 
 const TABS = [
-  {
-    key: "categorias",
-    label: "Categorías",
-    icon: <FaTags />,
-    component: <CategoriasAdmin />,
-  },
-  {
-    key: "productos",
-    label: "Productos",
-    icon: <FaBoxOpen />,
-    component: <ProductosAdmin />,
-  },
-  {
-    key: "modificadores",
-    label: "Modificadores",
-    icon: <FaSlidersH />,
-    component: <ModificadoresAdmin />,
-  },
-  {
-    key: "asignacion",
-    label: "Asignación",
-    icon: <FaLink />,
-    component: <ProductoModificadoresAdmin />,
-  },
+  { key: "categorias", label: "Categorías", icon: <FaTags />, component: <CategoriasAdmin /> },
+  { key: "productos", label: "Productos", icon: <FaBoxOpen />, component: <ProductosAdmin /> },
+  { key: "modificadores", label: "Modificadores", icon: <FaSlidersH />, component: <ModificadoresAdmin /> },
+  { key: "asignacion", label: "Asignación", icon: <FaLink />, component: <ProductoModificadoresAdmin /> },
 ];
 
 export default function Admin() {
@@ -44,9 +22,7 @@ export default function Admin() {
   const params = new URLSearchParams(location.search);
   const tabFromUrl = params.get("tab");
 
-  const [tab, setTab] = useState(() => {
-    return tabFromUrl || localStorage.getItem("admin_tab") || "productos";
-  });
+  const [tab, setTab] = useState(() => tabFromUrl || localStorage.getItem("admin_tab") || "productos");
 
   useEffect(() => {
     const valid = TABS.some((t) => t.key === tab);
@@ -58,17 +34,15 @@ export default function Admin() {
 
     const p = new URLSearchParams(location.search);
     p.set("tab", tab);
-    navigate(
-      { pathname: "/admin", search: `?${p.toString()}` },
-      { replace: true },
-    );
+
+    navigate({ pathname: "/admin", search: `?${p.toString()}` }, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
   const current = TABS.find((t) => t.key === tab) || TABS[1];
 
   return (
-    <LayoutBS title="Dashboard Admin">
+    <>
       {/* Header elegante */}
       <div className="d-flex flex-wrap align-items-end justify-content-between gap-2 mb-3">
         <div>
@@ -91,9 +65,7 @@ export default function Admin() {
               <button
                 key={t.key}
                 type="button"
-                className={`nav-link d-inline-flex align-items-center gap-2 ${
-                  tab === t.key ? "active" : ""
-                }`}
+                className={`nav-link d-inline-flex align-items-center gap-2 ${tab === t.key ? "active" : ""}`}
                 onClick={() => setTab(t.key)}
                 style={{ borderRadius: 999 }}
               >
@@ -109,6 +81,6 @@ export default function Admin() {
       <div className="card shadow-sm">
         <div className="card-body">{current.component}</div>
       </div>
-    </LayoutBS>
+    </>
   );
 }

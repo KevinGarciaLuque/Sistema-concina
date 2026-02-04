@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "../api";
 import { socket } from "../socket";
-import LayoutBS from "../components/LayoutBS";
+
 
 export default function Pos() {
   const [cliente, setCliente] = useState("");

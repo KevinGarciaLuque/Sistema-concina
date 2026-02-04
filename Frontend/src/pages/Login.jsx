@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Modal, Button, Form, Spinner } from "react-bootstrap";
+import { Modal, Button, Form, Spinner, InputGroup } from "react-bootstrap";
 import { useAuth } from "../context/AuthContext";
 import { socket } from "../socket";
-import api from "../api"; // si aún no lo usas, igual déjalo (para recuperar contraseña)
+import api from "../api";
+import { FaEye, FaEyeSlash } from "react-icons/fa";
 
 export default function Login() {
   const { login } = useAuth();
@@ -16,6 +17,9 @@ export default function Login() {
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // 👁️ mostrar/ocultar contraseña
+  const [showPass, setShowPass] = useState(false);
+
   // Recuperación
   const [showReset, setShowReset] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
@@ -27,6 +31,41 @@ export default function Login() {
     [usuario, password, loading],
   );
 
+  const syncSessionStorage = (user) => {
+    // ✅ Estándar: si "Recordarme" = false -> todo a sessionStorage
+    // si = true -> todo a localStorage
+    const tokenLS = localStorage.getItem("token");
+    const userLS = localStorage.getItem("user");
+    const tokenSS = sessionStorage.getItem("token");
+    const userSS = sessionStorage.getItem("user");
+
+    // Limpieza cruzada (evita inconsistencias)
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("user");
+
+    // Si AuthContext ya guardó algo, lo reusamos; si no, guardamos mínimo
+    const token = tokenLS || tokenSS || null;
+
+    const payloadUser = user
+      ? JSON.stringify({
+          id: user.id,
+          nombre: user.nombre,
+          usuario: user.usuario,
+          rol: user.rol, // 👈 CLAVE para que no salga "sin rol"
+        })
+      : (userLS || userSS || null);
+
+    if (recordarme) {
+      if (token) localStorage.setItem("token", token);
+      if (payloadUser) localStorage.setItem("user", payloadUser);
+    } else {
+      if (token) sessionStorage.setItem("token", token);
+      if (payloadUser) sessionStorage.setItem("user", payloadUser);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setMsg("");
@@ -35,33 +74,19 @@ export default function Login() {
     try {
       const user = await login(usuario.trim(), password);
 
+      // ✅ Asegurar que user/token queden en el storage correcto y con rol
+      syncSessionStorage(user);
+
       // ✅ socket join por rol
       try {
         if (!socket.connected) socket.connect();
         socket.emit("join", { rol: user.rol });
       } catch {}
 
-      // ✅ Recordarme: si NO, lo dejamos solo en sesión
-      // (Tu AuthContext probablemente guarda en localStorage; aquí lo respetamos si existe)
-      if (!recordarme) {
-        // Si tu AuthContext guarda token/user en localStorage, lo movemos a sessionStorage
-        // para que se borre al cerrar el navegador.
-        const token = localStorage.getItem("token");
-        const userLS = localStorage.getItem("user");
-        if (token) {
-          sessionStorage.setItem("token", token);
-          localStorage.removeItem("token");
-        }
-        if (userLS) {
-          sessionStorage.setItem("user", userLS);
-          localStorage.removeItem("user");
-        }
-      }
-
       // ✅ redirección por rol
       if (user.rol === "cocina") navigate("/cocina");
       else if (user.rol === "cajero") navigate("/pos");
-      else navigate("/admin"); // admin / supervisor
+      else navigate("/dashboard"); // admin / supervisor
     } catch (err) {
       setMsg(
         err?.response?.data?.msg ||
@@ -84,22 +109,16 @@ export default function Login() {
     setResetMsg("");
     setResetLoading(true);
 
-    // ✅ Estándar profesional: no confirmamos si existe o no el correo (seguridad),
-    // siempre mostramos el mismo mensaje.
     const mensajeOK =
       "Si el correo está registrado, recibirás instrucciones para restablecer tu contraseña.";
 
     try {
-      // 🔌 Cuando tengas tu endpoint real, aquí se llama.
-      // Ejemplo recomendado:
+      // Cuando tengas endpoint real:
       // await api.post("/auth/recuperar", { email: resetEmail.trim() });
 
-      // Por ahora lo dejamos como "simulación" para que tengas UI completa:
       await new Promise((r) => setTimeout(r, 700));
-
       setResetMsg(mensajeOK);
     } catch (err) {
-      // Aun si falla, mostramos el mensaje estándar para no filtrar info
       setResetMsg(mensajeOK);
     } finally {
       setResetLoading(false);
@@ -149,14 +168,39 @@ export default function Login() {
 
             <Form.Group>
               <Form.Label className="fw-semibold">Contraseña</Form.Label>
-              <Form.Control
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                autoComplete="current-password"
-                style={{ borderRadius: 12, padding: "12px 14px" }}
-              />
+
+              {/* 👁️ InputGroup con ojito */}
+              <InputGroup>
+                <Form.Control
+                  type={showPass ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  style={{
+                    borderTopLeftRadius: 12,
+                    borderBottomLeftRadius: 12,
+                    padding: "12px 14px",
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline-secondary"
+                  onClick={() => setShowPass((v) => !v)}
+                  aria-label={showPass ? "Ocultar contraseña" : "Mostrar contraseña"}
+                  style={{
+                    borderTopRightRadius: 12,
+                    borderBottomRightRadius: 12,
+                    padding: "12px 14px",
+                  }}
+                >
+                  {showPass ? <FaEyeSlash /> : <FaEye />}
+                </Button>
+              </InputGroup>
+
+              <div className="text-muted mt-1" style={{ fontSize: 12 }}>
+                {showPass ? "Contraseña visible" : "Contraseña oculta"}
+              </div>
             </Form.Group>
 
             <div className="d-flex align-items-center justify-content-between">
@@ -198,8 +242,10 @@ export default function Login() {
             </Button>
 
             <div className="text-center text-muted" style={{ fontSize: 12 }}>
-              © {new Date().getFullYear()} Sistema Cocina
-            </div>
+  © {new Date().getFullYear()} Sistema Cocina
+  <div>Desarrollado por Kevin Garcia</div>
+</div>
+
           </Form>
         </div>
       </div>

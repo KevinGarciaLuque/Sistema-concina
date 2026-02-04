@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "../api";
 import { socket } from "../socket";
-import LayoutBS from "../components/LayoutBS";
+
 
 export default function Cocina() {
   const [ordenes, setOrdenes] = useState([]);
