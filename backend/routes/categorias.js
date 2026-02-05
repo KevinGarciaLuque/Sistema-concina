@@ -1,188 +1,170 @@
-import { Router } from "express";
-import db from "../db.js";
-import { auth } from "../middleware/auth.js";
-import { allowRoles } from "../middleware/roles.js";
+const express = require("express");
+const router = express.Router();
 
-const router = Router();
+const dbRaw = require("../db");
+const pool = dbRaw?.execute ? dbRaw : dbRaw?.pool || dbRaw;
+
+const asyncHandler = require("../utils/asyncHandler");
+const { registrarBitacora, getIp } = require("../utils/bitacora");
+
+// middlewares (compatibles con varias formas de export)
+const authRaw = require("../middleware/auth");
+const rolesRaw = require("../middleware/roles");
+
+const auth = authRaw?.requireAuth || authRaw?.auth || authRaw;
+const allowRoles =
+  rolesRaw?.allowRoles || rolesRaw?.permitirRoles || rolesRaw?.roles || rolesRaw;
+
+// helper query
+const exec = (sql, params = []) =>
+  pool.execute ? pool.execute(sql, params) : pool.query(sql, params);
+
+const isInt = (v) => Number.isInteger(Number(v));
 
 /**
- * GET /api/categorias
- * - Para POS: solo activas (default)
- * - Query: ?todas=1 -> incluye inactivas
+ * GET /api/categorias?activo=1
+ * Lista categorías (orden ASC, nombre ASC)
  */
-router.get("/", auth, async (req, res) => {
-  try {
-    const todas = Number(req.query.todas || 0);
+router.get(
+  "/",
+  auth,
+  asyncHandler(async (req, res) => {
+    const { activo } = req.query;
+    const where = [];
+    const params = [];
 
-    const where = todas ? "1=1" : "activo=1";
-    const [rows] = await db.query(
-      `SELECT id, nombre, orden, activo
-       FROM categorias
-       WHERE ${where}
-       ORDER BY orden ASC, nombre ASC`,
-    );
+    if (activo !== undefined) {
+      where.push("c.activo = ?");
+      params.push(Number(activo) ? 1 : 0);
+    }
 
-    res.json(rows);
-  } catch (err) {
-    console.error("GET /categorias error:", err);
-    res.status(500).json({ message: "Error al obtener categorías" });
-  }
-});
+    const sql = `
+      SELECT c.id, c.nombre, c.activo, c.orden, c.created_at
+      FROM categorias c
+      ${where.length ? "WHERE " + where.join(" AND ") : ""}
+      ORDER BY c.orden ASC, c.nombre ASC
+    `;
+
+    const [rows] = await exec(sql, params);
+    res.json({ ok: true, data: rows });
+  })
+);
 
 /**
  * POST /api/categorias
  * body: { nombre, orden?, activo? }
+ * admin/supervisor
  */
-router.post("/", auth, allowRoles("admin"), async (req, res) => {
-  try {
-    const { nombre, orden, activo } = req.body;
+router.post(
+  "/",
+  auth,
+  allowRoles?.("admin", "supervisor"),
+  asyncHandler(async (req, res) => {
+    const { nombre, orden = 0, activo = 1 } = req.body || {};
 
-    if (!nombre || !String(nombre).trim()) {
-      return res.status(400).json({ message: "El nombre es obligatorio" });
+    if (!nombre || String(nombre).trim().length < 2) {
+      return res.status(400).json({ ok: false, message: "Nombre de categoría inválido." });
     }
 
-    // Si no mandan orden, ponemos al final
-    let ordenFinal = Number(orden);
-    if (!ordenFinal) {
-      const [[r]] = await db.query(
-        `SELECT COALESCE(MAX(orden),0)+1 AS nextOrden FROM categorias`,
-      );
-      ordenFinal = r.nextOrden;
-    }
-
-    const [result] = await db.query(
-      `INSERT INTO categorias (nombre, orden, activo) VALUES (?,?,?)`,
-      [String(nombre).trim(), ordenFinal, activo ? 1 : 1], // por defecto activo=1
+    const [r] = await exec(
+      `INSERT INTO categorias (nombre, activo, orden) VALUES (?, ?, ?)`,
+      [String(nombre).trim(), Number(activo) ? 1 : 0, Number(orden) || 0]
     );
 
-    res.json({ id: result.insertId });
-  } catch (err) {
-    console.error("POST /categorias error:", err);
-    // probable duplicado por UNIQUE(nombre)
-    if (String(err?.code) === "ER_DUP_ENTRY") {
-      return res
-        .status(409)
-        .json({ message: "Ya existe una categoría con ese nombre" });
-    }
-    res.status(500).json({ message: "Error al crear categoría" });
-  }
-});
+    await registrarBitacora(dbRaw, {
+      usuario_id: req.user?.id ?? null,
+      accion: "CREAR",
+      entidad: "categorias",
+      entidad_id: r.insertId,
+      detalle: `Categoría creada: ${nombre}`,
+      ip: getIp(req),
+    });
+
+    res.status(201).json({ ok: true, id: r.insertId });
+  })
+);
 
 /**
  * PUT /api/categorias/:id
- * body: { nombre, orden, activo }
+ * body: { nombre, orden?, activo? }
  */
-router.put("/:id", auth, allowRoles("admin"), async (req, res) => {
-  try {
-    const { nombre, orden, activo } = req.body;
+router.put(
+  "/:id",
+  auth,
+  allowRoles?.("admin", "supervisor"),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    if (!isInt(id)) return res.status(400).json({ ok: false, message: "ID inválido." });
 
-    if (!nombre || !String(nombre).trim()) {
-      return res.status(400).json({ message: "El nombre es obligatorio" });
+    const { nombre, orden, activo } = req.body || {};
+    if (!nombre || String(nombre).trim().length < 2) {
+      return res.status(400).json({ ok: false, message: "Nombre de categoría inválido." });
     }
 
-    await db.query(
-      `UPDATE categorias SET nombre=?, orden=?, activo=? WHERE id=?`,
+    const [r] = await exec(
+      `UPDATE categorias
+       SET nombre = ?, orden = COALESCE(?, orden), activo = COALESCE(?, activo)
+       WHERE id = ?`,
       [
         String(nombre).trim(),
-        Number(orden) || 1,
-        activo ? 1 : 0,
-        req.params.id,
-      ],
+        orden === undefined ? null : Number(orden) || 0,
+        activo === undefined ? null : (Number(activo) ? 1 : 0),
+        Number(id),
+      ]
     );
 
-    res.json({ ok: true });
-  } catch (err) {
-    console.error("PUT /categorias/:id error:", err);
-    if (String(err?.code) === "ER_DUP_ENTRY") {
-      return res
-        .status(409)
-        .json({ message: "Ya existe una categoría con ese nombre" });
+    if (r.affectedRows === 0) {
+      return res.status(404).json({ ok: false, message: "Categoría no encontrada." });
     }
-    res.status(500).json({ message: "Error al actualizar categoría" });
-  }
-});
+
+    await registrarBitacora(dbRaw, {
+      usuario_id: req.user?.id ?? null,
+      accion: "ACTUALIZAR",
+      entidad: "categorias",
+      entidad_id: Number(id),
+      detalle: `Categoría actualizada: ${nombre}`,
+      ip: getIp(req),
+    });
+
+    res.json({ ok: true });
+  })
+);
 
 /**
  * PATCH /api/categorias/:id/activo
  * body: { activo: 0|1 }
  */
-router.patch("/:id/activo", auth, allowRoles("admin"), async (req, res) => {
-  try {
-    const activo = Number(req.body.activo) ? 1 : 0;
-    await db.query(`UPDATE categorias SET activo=? WHERE id=?`, [
-      activo,
-      req.params.id,
-    ]);
-    res.json({ ok: true });
-  } catch (err) {
-    console.error("PATCH /categorias/:id/activo error:", err);
-    res.status(500).json({ message: "Error al cambiar estado" });
-  }
-});
+router.patch(
+  "/:id/activo",
+  auth,
+  allowRoles?.("admin", "supervisor"),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { activo } = req.body || {};
+    if (!isInt(id)) return res.status(400).json({ ok: false, message: "ID inválido." });
 
-/**
- * PATCH /api/categorias/orden
- * body: { orden: [ {id, orden}, ... ] }
- * - útil para drag & drop
- */
-router.patch("/orden", auth, allowRoles("admin"), async (req, res) => {
-  const conn = await db.getConnection();
-  try {
-    const { orden } = req.body;
-    if (!Array.isArray(orden) || orden.length === 0) {
-      return res.status(400).json({ message: "Orden inválido" });
-    }
+    const val = Number(activo) ? 1 : 0;
 
-    await conn.beginTransaction();
-    for (const item of orden) {
-      await conn.query(`UPDATE categorias SET orden=? WHERE id=?`, [
-        Number(item.orden),
-        item.id,
-      ]);
-    }
-    await conn.commit();
-
-    res.json({ ok: true });
-  } catch (err) {
-    await conn.rollback();
-    console.error("PATCH /categorias/orden error:", err);
-    res.status(500).json({ message: "Error al ordenar categorías" });
-  } finally {
-    conn.release();
-  }
-});
-
-
-
-
-// ✅ Eliminar categoría (solo admin)
-// Regla: NO se permite si hay productos asociados
-router.delete("/:id", auth, allowRoles("admin"), async (req, res) => {
-  try {
-    const id = req.params.id;
-
-    // 1) verificar productos asociados
-    const [[r]] = await db.query(
-      `SELECT COUNT(*) AS total FROM productos WHERE categoria_id=?`,
-      [id]
+    const [r] = await exec(
+      `UPDATE categorias SET activo = ? WHERE id = ?`,
+      [val, Number(id)]
     );
 
-    if (Number(r.total) > 0) {
-      return res.status(409).json({
-        message:
-          "No se puede eliminar: esta categoría tiene productos. Mueve o elimina los productos primero (o desactiva la categoría).",
-      });
+    if (r.affectedRows === 0) {
+      return res.status(404).json({ ok: false, message: "Categoría no encontrada." });
     }
 
-    // 2) borrar
-    await db.query(`DELETE FROM categorias WHERE id=?`, [id]);
+    await registrarBitacora(dbRaw, {
+      usuario_id: req.user?.id ?? null,
+      accion: val ? "ACTIVAR" : "DESACTIVAR",
+      entidad: "categorias",
+      entidad_id: Number(id),
+      detalle: `Categoría ${val ? "activada" : "desactivada"}`,
+      ip: getIp(req),
+    });
 
     res.json({ ok: true });
-  } catch (err) {
-    console.error("DELETE /categorias/:id error:", err);
-    res.status(500).json({ message: "Error al eliminar categoría" });
-  }
-});
+  })
+);
 
-
-export default router;
+module.exports = router;
