@@ -4,7 +4,7 @@ import Login from "../pages/Login";
 
 // Páginas
 import Dashboard from "../pages/Dashboard";
-import Pos from "../pages/Pos";
+import Pos from "../pages/POS/Pos";
 import Cocina from "../pages/Cocina";
 import Ordenes from "../pages/Ordenes";
 import Caja from "../pages/Caja";
@@ -14,6 +14,7 @@ import Bitacora from "../pages/Bitacora";
 // Admin
 import Admin from "../pages/admin/Admin";
 import ProductoModificadoresAdmin from "../pages/admin/ProductoModificadoresAdmin";
+import GestionUsuarios from "../pages/admin/GestionUsuarios"; // ✅ si ya lo creaste aquí
 
 // Auth + Layout
 import ProtectedRoute from "../components/ProtectedRoute";
@@ -28,11 +29,12 @@ export default function AppRoutes() {
       {/* Privado con Layout (Navbar + Sidebar) */}
       <Route
         element={
-          <ProtectedRoute roles={["admin", "supervisor", "cajero"]}>
+          <ProtectedRoute roles={["admin", "supervisor", "cajero", "cocina"]}>
             <MainLayout />
           </ProtectedRoute>
         }
       >
+        {/* Dashboard */}
         <Route
           path="/dashboard"
           element={
@@ -42,6 +44,7 @@ export default function AppRoutes() {
           }
         />
 
+        {/* POS */}
         <Route
           path="/pos"
           element={
@@ -51,6 +54,17 @@ export default function AppRoutes() {
           }
         />
 
+        {/* ✅ Cocina ahora CON layout */}
+        <Route
+          path="/cocina"
+          element={
+            <ProtectedRoute roles={["admin", "supervisor", "cocina"]}>
+              <Cocina />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Órdenes (Monitor) */}
         <Route
           path="/ordenes"
           element={
@@ -60,6 +74,7 @@ export default function AppRoutes() {
           }
         />
 
+        {/* Caja */}
         <Route
           path="/caja"
           element={
@@ -69,6 +84,7 @@ export default function AppRoutes() {
           }
         />
 
+        {/* Facturas */}
         <Route
           path="/facturas"
           element={
@@ -78,6 +94,7 @@ export default function AppRoutes() {
           }
         />
 
+        {/* Bitácora */}
         <Route
           path="/bitacora"
           element={
@@ -87,11 +104,21 @@ export default function AppRoutes() {
           }
         />
 
+        {/* Admin */}
         <Route
           path="/admin"
           element={
             <ProtectedRoute roles={["admin"]}>
               <Admin />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/usuarios"
+          element={
+            <ProtectedRoute roles={["admin"]}>
+              <GestionUsuarios />
             </ProtectedRoute>
           }
         />
@@ -106,19 +133,9 @@ export default function AppRoutes() {
         />
       </Route>
 
-      {/* Cocina (KDS) sin Layout */}
-      <Route
-        path="/cocina"
-        element={
-          <ProtectedRoute roles={["admin", "supervisor", "cocina"]}>
-            <Cocina />
-          </ProtectedRoute>
-        }
-      />
-
       {/* Redirects */}
-      <Route path="/" element={<Navigate to="/login" replace />} />
-      <Route path="*" element={<Navigate to="/login" replace />} />
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }

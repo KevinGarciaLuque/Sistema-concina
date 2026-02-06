@@ -1,50 +1,50 @@
-const express = require("express");
+import express from "express";
+import * as dbMod from "../db.js";
+import * as authMod from "../middleware/auth.js";
+import * as rolesMod from "../middleware/roles.js";
+
 const router = express.Router();
 
-const dbRaw = require("../db");
-const pool = dbRaw?.execute ? dbRaw : dbRaw?.pool || dbRaw;
+/* =========================
+   DB pool compatible (db.js)
+========================= */
+const pool =
+  (dbMod.default && (dbMod.default.execute || dbMod.default.query) ? dbMod.default : null) ||
+  dbMod.pool ||
+  dbMod.connection ||
+  dbMod.db ||
+  null;
 
-const asyncHandler = require("../utils/asyncHandler");
-const { registrarBitacora, getIp } = require("../utils/bitacora");
+if (!pool) throw new Error("DB pool no disponible en db.js");
 
-const authRaw = require("../middleware/auth");
-const rolesRaw = require("../middleware/roles");
-
-const requireAuth =
-  (typeof authRaw === "function" ? authRaw : (authRaw?.requireAuth || authRaw?.auth)) ||
-  ((req, res, next) => (req.user ? next() : res.status(401).json({ ok: false, message: "No autenticado." })));
-
-const allowRolesRaw =
-  (typeof rolesRaw === "function" ? rolesRaw : (rolesRaw?.allowRoles || rolesRaw?.permitirRoles || rolesRaw?.roles));
-
-const allowRoles =
-  allowRolesRaw ||
-  ((...roles) => (req, res, next) => {
-    const r = (req.user?.rol || "").toLowerCase();
-    if (roles.map(x => x.toLowerCase()).includes(r)) return next();
-    return res.status(403).json({ ok: false, message: "No autorizado." });
-  });
-
-const execPool = (sql, params = []) =>
+const exec = (sql, params = []) =>
   pool.execute ? pool.execute(sql, params) : pool.query(sql, params);
 
+/* =========================
+   Middlewares compatibles
+========================= */
+const requireAuth = authMod.default || authMod.requireAuth || authMod.auth;
+const allowRoles =
+  rolesMod.default ||
+  rolesMod.allowRoles ||
+  rolesMod.permitirRoles ||
+  rolesMod.roles;
+
+if (!requireAuth) throw new Error("No se encontró middleware auth en middleware/auth.js");
+if (!allowRoles) throw new Error("No se encontró middleware roles en middleware/roles.js");
+
+const asyncHandler = (fn) => (req, res, next) =>
+  Promise.resolve(fn(req, res, next)).catch(next);
+
 const isInt = (v) => Number.isInteger(Number(v));
-const toNum = (v, def = 0) => {
+const toMoney = (v, def = 0) => {
   const n = Number(v);
-  return Number.isFinite(n) ? n : def;
+  if (!Number.isFinite(n)) return def;
+  return Math.round(n * 100) / 100;
 };
 
-const ESTADOS = ["NUEVA", "EN_PREPARACION", "LISTA", "ENTREGADA", "ANULADA"];
-const TIPOS = ["MESA", "LLEVAR", "DELIVERY"];
-
-// Transiciones estándar POS/KDS
-const TRANSICIONES = {
-  NUEVA: ["EN_PREPARACION", "ANULADA"],
-  EN_PREPARACION: ["LISTA", "ANULADA"],
-  LISTA: ["ENTREGADA", "ANULADA"],
-  ENTREGADA: [],
-  ANULADA: [],
-};
+const ESTADOS = new Set(["NUEVA", "EN_PREPARACION", "LISTA", "ENTREGADA", "ANULADA"]);
+const TIPOS = new Set(["MESA", "LLEVAR", "DELIVERY"]);
 
 function getIO(req) {
   try {
@@ -54,359 +54,211 @@ function getIO(req) {
   }
 }
 
-async function emitBadges(req) {
+function emitOrden(req, payload) {
   const io = getIO(req);
   if (!io) return;
-
-  const [[a]] = await execPool(
-    `SELECT COUNT(*) AS ordenes_hoy
-     FROM ordenes
-     WHERE fecha = CURDATE() AND estado <> 'ANULADA'`
-  );
-
-  const [[b]] = await execPool(
-    `SELECT COUNT(*) AS en_cocina
-     FROM ordenes
-     WHERE fecha = CURDATE() AND estado = 'EN_PREPARACION'`
-  );
-
-  io.emit("badge:update", {
-    ordenes: Number(a?.ordenes_hoy || 0),
-    cocina: Number(b?.en_cocina || 0),
-  });
+  // ambos rooms para que POS y KDS se actualicen
+  io.to("cocina").emit("ordenes:update", { ts: Date.now(), ...payload });
+  io.to("caja").emit("ordenes:update", { ts: Date.now(), ...payload });
 }
 
-function padCodigo(n) {
-  // estilo dashboard: 023, 024...
-  const num = Number(n);
-  if (num < 1000) return String(num).padStart(3, "0");
-  return String(num);
+function getIp(req) {
+  const xf = req.headers["x-forwarded-for"];
+  return (Array.isArray(xf) ? xf[0] : xf)?.split(",")[0]?.trim() || req.ip || null;
 }
 
-async function getCajaActiva(userId) {
-  const [rows] = await execPool(
-    `SELECT id FROM caja_sesiones
-     WHERE usuario_id = ? AND estado = 'ABIERTA'
-     ORDER BY id DESC LIMIT 1`,
-    [Number(userId)]
-  );
-  return rows[0]?.id || null;
+async function bitacoraSafe(req, { accion, entidad, entidad_id = null, detalle = null }) {
+  try {
+    await exec(
+      `INSERT INTO bitacora (usuario_id, accion, entidad, entidad_id, detalle, ip)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [req.user?.id ?? null, accion, entidad, entidad_id, detalle, getIp(req)]
+    );
+  } catch {}
 }
 
-async function validarYPrepararItems(conn, items) {
-  // Validaciones base
-  if (!Array.isArray(items) || items.length === 0) {
-    const err = new Error("La orden debe incluir items.");
-    err.status = 400;
-    throw err;
-  }
-
-  // Normaliza
-  const normalized = items.map((it) => ({
-    producto_id: Number(it.producto_id),
-    cantidad: Math.max(1, parseInt(it.cantidad || 1, 10)),
-    notas: it.notas ? String(it.notas).trim().slice(0, 255) : null,
-    opciones: Array.isArray(it.opciones) ? it.opciones : [],
-  }));
-
-  // Productos (bulk)
-  const prodIds = [...new Set(normalized.map((x) => x.producto_id).filter((x) => Number.isInteger(x) && x > 0))];
-  if (!prodIds.length) {
-    const err = new Error("Items inválidos: producto_id.");
-    err.status = 400;
-    throw err;
-  }
-
-  const [prods] = await conn.execute(
-    `SELECT id, nombre, precio, activo, en_menu
-     FROM productos
-     WHERE id IN (${prodIds.map(() => "?").join(",")})`,
-    prodIds
-  );
-
-  const mapProd = new Map(prods.map((p) => [Number(p.id), p]));
-
-  // Opciones (bulk)
-  const opcionIds = [];
-  for (const it of normalized) {
-    for (const op of it.opciones) {
-      if (op?.opcion_id) opcionIds.push(Number(op.opcion_id));
-    }
-  }
-  const uniqueOpcionIds = [...new Set(opcionIds.filter((x) => Number.isInteger(x) && x > 0))];
-
-  let opcionesDB = [];
-  if (uniqueOpcionIds.length) {
-    const [ops] = await conn.execute(
-      `SELECT id, modificador_id, nombre, precio_extra, activo
-       FROM modificador_opciones
-       WHERE id IN (${uniqueOpcionIds.map(() => "?").join(",")})`,
-      uniqueOpcionIds
-    );
-    opcionesDB = ops;
-  }
-  const mapOpcion = new Map(opcionesDB.map((o) => [Number(o.id), o]));
-
-  // Validar relación producto_modificadores por cada producto (bulk por producto)
-  const modByProd = new Map();
-  const [pm] = await conn.execute(
-    `SELECT producto_id, modificador_id
-     FROM producto_modificadores
-     WHERE producto_id IN (${prodIds.map(() => "?").join(",")})`,
-    prodIds
-  );
-  for (const row of pm) {
-    const pid = Number(row.producto_id);
-    const mid = Number(row.modificador_id);
-    if (!modByProd.has(pid)) modByProd.set(pid, new Set());
-    modByProd.get(pid).add(mid);
-  }
-
-  // Construir items listos (con precio y nombres)
-  const result = [];
-  let subtotal = 0;
-
-  for (const it of normalized) {
-    const p = mapProd.get(it.producto_id);
-    if (!p) {
-      const err = new Error(`Producto no existe: ${it.producto_id}`);
-      err.status = 400;
-      throw err;
-    }
-    if (Number(p.activo) !== 1) {
-      const err = new Error(`Producto inactivo: ${p.nombre}`);
-      err.status = 409;
-      throw err;
-    }
-
-    const basePrecio = toNum(p.precio, 0);
-    const allowedMods = modByProd.get(it.producto_id) || new Set();
-
-    const opcionesGuardables = [];
-    let extras = 0;
-
-    for (const op of it.opciones) {
-      const modificador_id = Number(op.modificador_id);
-      const opcion_id = Number(op.opcion_id);
-
-      if (!Number.isInteger(modificador_id) || modificador_id <= 0) continue;
-      if (!Number.isInteger(opcion_id) || opcion_id <= 0) continue;
-
-      // valida que el modificador está asignado al producto
-      if (!allowedMods.has(modificador_id)) {
-        const err = new Error(`Modificador ${modificador_id} no permitido para producto ${p.nombre}`);
-        err.status = 409;
-        throw err;
-      }
-
-      const opc = mapOpcion.get(opcion_id);
-      if (!opc) {
-        const err = new Error(`Opción no existe: ${opcion_id}`);
-        err.status = 400;
-        throw err;
-      }
-      if (Number(opc.activo) !== 1) {
-        const err = new Error(`Opción inactiva: ${opc.nombre}`);
-        err.status = 409;
-        throw err;
-      }
-      if (Number(opc.modificador_id) !== modificador_id) {
-        const err = new Error(`Opción ${opcion_id} no pertenece a modificador ${modificador_id}`);
-        err.status = 409;
-        throw err;
-      }
-
-      const precio_extra = toNum(opc.precio_extra, 0);
-      extras += precio_extra;
-
-      opcionesGuardables.push({
-        modificador_id,
-        opcion_id,
-        opcion_nombre: String(opc.nombre),
-        precio_extra,
-      });
-    }
-
-    const total_linea = (basePrecio + extras) * it.cantidad;
-    subtotal += total_linea;
-
-    result.push({
-      producto_id: it.producto_id,
-      producto_nombre: String(p.nombre),
-      precio_unitario: basePrecio,
-      cantidad: it.cantidad,
-      notas: it.notas,
-      total_linea,
-      opciones: opcionesGuardables,
-    });
-  }
-
-  return { items: result, subtotal };
+function formatDateYYYYMMDD(d) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}${mm}${dd}`;
 }
-
-/* =========================================================
-   GET /api/ordenes/stats/hoy
-   Dashboard rápido
-========================================================= */
-router.get(
-  "/stats/hoy",
-  requireAuth,
-  asyncHandler(async (req, res) => {
-    const [[a]] = await execPool(
-      `SELECT COUNT(*) AS ordenes_hoy
-       FROM ordenes
-       WHERE fecha = CURDATE() AND estado <> 'ANULADA'`
-    );
-
-    const [[b]] = await execPool(
-      `SELECT COUNT(*) AS en_cocina
-       FROM ordenes
-       WHERE fecha = CURDATE() AND estado = 'EN_PREPARACION'`
-    );
-
-    res.json({
-      ok: true,
-      data: {
-        ordenes_hoy: Number(a?.ordenes_hoy || 0),
-        en_cocina: Number(b?.en_cocina || 0),
-      },
-    });
-  })
-);
-
-/* =========================================================
-   GET /api/ordenes/ultimas?limit=10
-========================================================= */
-router.get(
-  "/ultimas",
-  requireAuth,
-  asyncHandler(async (req, res) => {
-    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || "10", 10)));
-    const [rows] = await execPool(
-      `SELECT id, codigo, tipo, mesa, estado, total, created_at
-       FROM ordenes
-       ORDER BY id DESC
-       LIMIT ?`,
-      [limit]
-    );
-    res.json({ ok: true, data: rows });
-  })
-);
 
 /* =========================================================
    GET /api/ordenes
-   filtros: estado, tipo, desde, hasta, q (codigo/cliente), hoy=1
+   query:
+   - estado, tipo
+   - from=YYYY-MM-DD, to=YYYY-MM-DD
+   - q (busca por codigo / cliente / mesa)
 ========================================================= */
 router.get(
   "/",
   requireAuth,
+  allowRoles("admin", "supervisor", "cajero", "cocina"),
   asyncHandler(async (req, res) => {
-    const { estado, tipo, desde, hasta, q, hoy } = req.query;
+    const { estado, tipo, from, to, q } = req.query;
 
     const where = [];
     const params = [];
 
-    if (hoy === "1") {
-      where.push("o.fecha = CURDATE()");
-    } else {
-      if (desde) {
-        where.push("o.fecha >= ?");
-        params.push(String(desde));
-      }
-      if (hasta) {
-        where.push("o.fecha <= ?");
-        params.push(String(hasta));
-      }
-    }
-
-    if (estado && ESTADOS.includes(String(estado).toUpperCase())) {
+    if (estado && ESTADOS.has(String(estado))) {
       where.push("o.estado = ?");
-      params.push(String(estado).toUpperCase());
+      params.push(String(estado));
     }
 
-    if (tipo && TIPOS.includes(String(tipo).toUpperCase())) {
+    if (tipo && TIPOS.has(String(tipo))) {
       where.push("o.tipo = ?");
-      params.push(String(tipo).toUpperCase());
+      params.push(String(tipo));
+    }
+
+    if (from) {
+      where.push("o.fecha >= ?");
+      params.push(String(from));
+    }
+
+    if (to) {
+      where.push("o.fecha <= ?");
+      params.push(String(to));
     }
 
     if (q) {
-      where.push("(o.codigo LIKE ? OR o.cliente_nombre LIKE ?)");
-      params.push(`%${q}%`, `%${q}%`);
+      where.push("(o.codigo LIKE ? OR o.cliente_nombre LIKE ? OR o.mesa LIKE ?)");
+      params.push(`%${q}%`, `%${q}%`, `%${q}%`);
     }
 
-    const sql = `
+    const [rows] = await exec(
+      `
       SELECT
         o.id, o.fecha, o.numero_dia, o.codigo,
-        o.cliente_nombre, o.tipo, o.mesa, o.estado,
+        o.cliente_nombre, o.tipo, o.mesa, o.estado, o.notas,
+        o.creado_por, u1.nombre AS creado_por_nombre,
+        o.asignado_cocina_por, u2.nombre AS asignado_cocina_por_nombre,
         o.subtotal, o.descuento, o.impuesto, o.total,
         o.created_at, o.updated_at,
-        u.nombre AS creado_por_nombre,
-        (SELECT COUNT(*) FROM orden_detalle d WHERE d.orden_id = o.id) AS items_count
+        (SELECT COUNT(*) FROM orden_detalle od WHERE od.orden_id = o.id) AS items_count
       FROM ordenes o
-      LEFT JOIN usuarios u ON u.id = o.creado_por
+      LEFT JOIN usuarios u1 ON u1.id = o.creado_por
+      LEFT JOIN usuarios u2 ON u2.id = o.asignado_cocina_por
       ${where.length ? "WHERE " + where.join(" AND ") : ""}
       ORDER BY o.id DESC
       LIMIT 300
-    `;
+      `,
+      params
+    );
 
-    const [rows] = await execPool(sql, params);
     res.json({ ok: true, data: rows });
   })
 );
 
 /* =========================================================
-   GET /api/ordenes/:id (detalle completo)
+   GET /api/ordenes/kds
+   Lista rápida para cocina (NUEVA/EN_PREPARACION/LISTA)
+========================================================= */
+router.get(
+  "/kds",
+  requireAuth,
+  allowRoles("admin", "supervisor", "cocina"),
+  asyncHandler(async (req, res) => {
+    const [rows] = await exec(
+      `
+      SELECT
+        o.id, o.fecha, o.numero_dia, o.codigo,
+        o.cliente_nombre, o.tipo, o.mesa, o.estado, o.notas,
+        o.subtotal, o.descuento, o.impuesto, o.total,
+        o.created_at, o.updated_at,
+        (SELECT COUNT(*) FROM orden_detalle od WHERE od.orden_id = o.id) AS items_count
+      FROM ordenes o
+      WHERE o.estado IN ('NUEVA','EN_PREPARACION','LISTA')
+      ORDER BY o.id DESC
+      LIMIT 200
+      `
+    );
+
+    res.json({ ok: true, data: rows });
+  })
+);
+
+/* =========================================================
+   GET /api/ordenes/:id
+   Devuelve orden + detalle + opciones
 ========================================================= */
 router.get(
   "/:id",
   requireAuth,
+  allowRoles("admin", "supervisor", "cajero", "cocina"),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     if (!isInt(id)) return res.status(400).json({ ok: false, message: "ID inválido." });
 
-    const [oRows] = await execPool(
-      `SELECT o.*, u.nombre AS creado_por_nombre
-       FROM ordenes o
-       LEFT JOIN usuarios u ON u.id = o.creado_por
-       WHERE o.id = ?`,
+    const [oRows] = await exec(
+      `
+      SELECT
+        o.*,
+        u1.nombre AS creado_por_nombre,
+        u2.nombre AS asignado_cocina_por_nombre
+      FROM ordenes o
+      LEFT JOIN usuarios u1 ON u1.id = o.creado_por
+      LEFT JOIN usuarios u2 ON u2.id = o.asignado_cocina_por
+      WHERE o.id = ?
+      `,
       [Number(id)]
     );
-    if (!oRows.length) return res.status(404).json({ ok: false, message: "Orden no encontrada." });
 
+    if (!oRows.length) return res.status(404).json({ ok: false, message: "Orden no encontrada." });
     const orden = oRows[0];
 
-    const [dRows] = await execPool(
-      `SELECT id, orden_id, producto_id, producto_nombre, precio_unitario, cantidad, notas, total_linea, created_at
-       FROM orden_detalle
-       WHERE orden_id = ?
-       ORDER BY id ASC`,
+    const [dRows] = await exec(
+      `
+      SELECT
+        od.id, od.orden_id, od.producto_id,
+        od.producto_nombre, od.precio_unitario, od.cantidad,
+        od.notas, od.total_linea, od.created_at
+      FROM orden_detalle od
+      WHERE od.orden_id = ?
+      ORDER BY od.id ASC
+      `,
       [Number(id)]
     );
 
-    const detIds = dRows.map((d) => d.id);
-    let opsRows = [];
-    if (detIds.length) {
-      const [ops] = await execPool(
-        `SELECT id, orden_detalle_id, modificador_id, opcion_id, opcion_nombre, precio_extra
-         FROM orden_detalle_opciones
-         WHERE orden_detalle_id IN (${detIds.map(() => "?").join(",")})
-         ORDER BY orden_detalle_id ASC, id ASC`,
-        detIds
+    const detalleIds = dRows.map((d) => d.id);
+    let opciones = [];
+    if (detalleIds.length) {
+      const [opRows] = await exec(
+        `
+        SELECT
+          odo.id, odo.orden_detalle_id,
+          odo.modificador_id, odo.opcion_id,
+          odo.opcion_nombre, odo.precio_extra
+        FROM orden_detalle_opciones odo
+        WHERE odo.orden_detalle_id IN (${detalleIds.map(() => "?").join(",")})
+        ORDER BY odo.orden_detalle_id ASC, odo.id ASC
+        `,
+        detalleIds
       );
-      opsRows = ops;
+      opciones = opRows;
+    }
+
+    const opcionesByDetalle = {};
+    for (const op of opciones) {
+      if (!opcionesByDetalle[op.orden_detalle_id]) opcionesByDetalle[op.orden_detalle_id] = [];
+      opcionesByDetalle[op.orden_detalle_id].push(op);
     }
 
     const detalle = dRows.map((d) => ({
       ...d,
-      opciones: opsRows.filter((o) => Number(o.orden_detalle_id) === Number(d.id)),
+      opciones: opcionesByDetalle[d.id] || [],
     }));
 
-    const [hRows] = await execPool(
-      `SELECT h.id, h.estado, h.cambiado_por, u.nombre AS cambiado_por_nombre, h.comentario, h.created_at
-       FROM orden_estados_historial h
-       LEFT JOIN usuarios u ON u.id = h.cambiado_por
-       WHERE h.orden_id = ?
-       ORDER BY h.id ASC`,
+    // historial estados
+    const [hRows] = await exec(
+      `
+      SELECT h.id, h.orden_id, h.estado, h.cambiado_por, u.nombre AS cambiado_por_nombre,
+             h.comentario, h.created_at
+      FROM orden_estados_historial h
+      LEFT JOIN usuarios u ON u.id = h.cambiado_por
+      WHERE h.orden_id = ?
+      ORDER BY h.id ASC
+      `,
       [Number(id)]
     );
 
@@ -415,274 +267,270 @@ router.get(
 );
 
 /* =========================================================
-   POST /api/ordenes (CREAR)
-   Roles: admin, supervisor, cajero
+   POST /api/ordenes
    body:
    {
-     tipo, mesa?, cliente_nombre?, notas?, descuento?,
-     items: [{ producto_id, cantidad, notas?, opciones:[{modificador_id, opcion_id}] }]
+     cliente_nombre, tipo, mesa, notas,
+     descuento, impuesto,
+     items: [
+       { producto_id, cantidad, notas, opciones:[{ opcion_id }, ...] }
+     ]
    }
+   - Genera correlativo diario en orden_correlativo
+   - Guarda snapshot en detalle y opciones
 ========================================================= */
 router.post(
   "/",
   requireAuth,
   allowRoles("admin", "supervisor", "cajero"),
   asyncHandler(async (req, res) => {
-    const userId = req.user?.id;
-    const rol = (req.user?.rol || "").toLowerCase();
-
-    const {
-      tipo = "LLEVAR",
-      mesa = null,
-      cliente_nombre = null,
-      notas = null,
-      descuento = 0,
-      items = [],
-    } = req.body || {};
-
-    const tipoUpper = String(tipo).toUpperCase();
-    if (!TIPOS.includes(tipoUpper)) {
-      return res.status(400).json({ ok: false, message: "Tipo inválido (MESA/LLEVAR/DELIVERY)." });
-    }
-
-    // regla POS típica: si es cajero, exige caja abierta para crear órdenes
-    if (rol === "cajero") {
-      const cajaId = await getCajaActiva(userId);
-      if (!cajaId) {
-        return res.status(409).json({
-          ok: false,
-          code: "CAJA_CERRADA",
-          message: "No hay caja abierta. Abre caja para crear órdenes.",
-        });
-      }
-    }
-
-    const desc = Math.max(0, toNum(descuento, 0));
-
-    // Transacción
     if (!pool.getConnection) {
-      // fallback sin transacción (no recomendado), pero funcional:
       return res.status(500).json({ ok: false, message: "Pool sin soporte de transacciones (getConnection)." });
     }
 
+    const cliente_nombre = req.body?.cliente_nombre ? String(req.body.cliente_nombre).trim().slice(0, 120) : null;
+    const tipo = String(req.body?.tipo || "LLEVAR").toUpperCase();
+    const mesa = req.body?.mesa ? String(req.body.mesa).trim().slice(0, 20) : null;
+    const notas = req.body?.notas ? String(req.body.notas).trim().slice(0, 255) : null;
+
+    if (!TIPOS.has(tipo)) return res.status(400).json({ ok: false, message: "tipo inválido." });
+    if (tipo === "MESA" && (!mesa || mesa.length < 1)) {
+      return res.status(400).json({ ok: false, message: "mesa es requerida cuando tipo = MESA." });
+    }
+
+    const descuento = toMoney(req.body?.descuento, 0);
+    const impuesto = toMoney(req.body?.impuesto, 0);
+
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!items.length) return res.status(400).json({ ok: false, message: "La orden debe tener items." });
+
+    // normalizar items
+    const cleanItems = items.map((it) => ({
+      producto_id: Number(it?.producto_id),
+      cantidad: Number(it?.cantidad ?? 1),
+      notas: it?.notas ? String(it.notas).trim().slice(0, 255) : null,
+      opciones: Array.isArray(it?.opciones) ? it.opciones : [],
+    }));
+
+    for (const it of cleanItems) {
+      if (!Number.isInteger(it.producto_id) || it.producto_id <= 0) {
+        return res.status(400).json({ ok: false, message: "producto_id inválido en items." });
+      }
+      if (!Number.isInteger(it.cantidad) || it.cantidad <= 0) {
+        return res.status(400).json({ ok: false, message: "cantidad inválida en items." });
+      }
+    }
+
     const conn = await pool.getConnection();
+    const cexec = (sql, params = []) => (conn.execute ? conn.execute(sql, params) : conn.query(sql, params));
+
     try {
       await conn.beginTransaction();
 
-      // fecha hoy desde MySQL para evitar desfaces
-      const [[hoyRow]] = await conn.execute(`SELECT CURDATE() AS hoy`);
-      const fecha = hoyRow.hoy; // YYYY-MM-DD
+      // fecha hoy (según servidor)
+      const now = new Date();
+      const yyyyMmDd = now.toISOString().slice(0, 10); // YYYY-MM-DD
+      const yyyymmdd = formatDateYYYYMMDD(now);
 
-      // correlativo diario con lock
-      const [corr] = await conn.execute(
+      // correlativo diario: lock
+      const [cRows] = await cexec(
         `SELECT ultimo_numero FROM orden_correlativo WHERE fecha = ? FOR UPDATE`,
-        [fecha]
+        [yyyyMmDd]
       );
 
       let ultimo = 0;
-      if (!corr.length) {
-        await conn.execute(
-          `INSERT INTO orden_correlativo (fecha, ultimo_numero) VALUES (?, 0)`,
-          [fecha]
-        );
-        ultimo = 0;
+      if (cRows.length) {
+        ultimo = Number(cRows[0].ultimo_numero || 0);
       } else {
-        ultimo = Number(corr[0].ultimo_numero || 0);
+        await cexec(`INSERT INTO orden_correlativo (fecha, ultimo_numero) VALUES (?, 0)`, [yyyyMmDd]);
       }
 
       const numero_dia = ultimo + 1;
-      const codigo = padCodigo(numero_dia);
+      await cexec(`UPDATE orden_correlativo SET ultimo_numero = ? WHERE fecha = ?`, [numero_dia, yyyyMmDd]);
 
-      await conn.execute(
-        `UPDATE orden_correlativo SET ultimo_numero = ? WHERE fecha = ?`,
-        [numero_dia, fecha]
+      const codigo = `ORD-${yyyymmdd}-${String(numero_dia).padStart(4, "0")}`; // <= 20 chars
+
+      // cargar productos base de un solo golpe
+      const prodIds = [...new Set(cleanItems.map((i) => i.producto_id))];
+      const [pRows] = await cexec(
+        `SELECT id, nombre, precio, activo FROM productos WHERE id IN (${prodIds.map(() => "?").join(",")})`,
+        prodIds
       );
+      const prodMap = new Map(pRows.map((p) => [Number(p.id), p]));
 
-      // validar items contra BD y preparar totales
-      const { items: itemsOK, subtotal } = await validarYPrepararItems(conn, items);
+      for (const pid of prodIds) {
+        const p = prodMap.get(pid);
+        if (!p) throw Object.assign(new Error("Producto no existe"), { status: 409, message: `Producto ${pid} no existe.` });
+        if (Number(p.activo) !== 1) {
+          throw Object.assign(new Error("Producto inactivo"), { status: 409, message: `Producto ${p.nombre} está inactivo.` });
+        }
+      }
 
-      const impuesto = 0; // listo para integrar luego si agregas lógica fiscal
-      const total = Math.max(0, subtotal - desc + impuesto);
+      // cargar opciones si vienen
+      const opcionIds = [];
+      for (const it of cleanItems) {
+        for (const op of it.opciones) {
+          const oid = Number(op?.opcion_id);
+          if (Number.isInteger(oid) && oid > 0) opcionIds.push(oid);
+        }
+      }
+      const uniqueOpcionIds = [...new Set(opcionIds)];
 
-      const cliente = cliente_nombre ? String(cliente_nombre).trim().slice(0, 120) : null;
-      const notasOrden = notas ? String(notas).trim().slice(0, 255) : null;
-      const mesaVal = tipoUpper === "MESA" ? (mesa ? String(mesa).trim().slice(0, 20) : null) : null;
+      let opcionMap = new Map();
+      if (uniqueOpcionIds.length) {
+        const [oRows] = await cexec(
+          `SELECT id, modificador_id, nombre, precio_extra, activo
+           FROM modificador_opciones
+           WHERE id IN (${uniqueOpcionIds.map(() => "?").join(",")})`,
+          uniqueOpcionIds
+        );
+        opcionMap = new Map(oRows.map((o) => [Number(o.id), o]));
 
-      const [rOrden] = await conn.execute(
-        `INSERT INTO ordenes
-         (fecha, numero_dia, codigo, cliente_nombre, tipo, mesa, estado, notas, creado_por, subtotal, descuento, impuesto, total)
-         VALUES (?, ?, ?, ?, ?, ?, 'NUEVA', ?, ?, ?, ?, ?, ?)`,
-        [fecha, numero_dia, codigo, cliente, tipoUpper, mesaVal, notasOrden, userId, subtotal, desc, impuesto, total]
+        for (const oid of uniqueOpcionIds) {
+          const o = opcionMap.get(oid);
+          if (!o) throw Object.assign(new Error("Opción no existe"), { status: 409, message: `Opción ${oid} no existe.` });
+          if (Number(o.activo) !== 1) throw Object.assign(new Error("Opción inactiva"), { status: 409, message: `Opción ${o.nombre} está inactiva.` });
+        }
+      }
+
+      // calcular totales
+      let subtotal = 0;
+      const computed = [];
+
+      for (const it of cleanItems) {
+        const p = prodMap.get(it.producto_id);
+        const precio_unitario = toMoney(p.precio, 0);
+
+        let extraUnit = 0;
+        const opcionesComputed = [];
+
+        for (const op of it.opciones) {
+          const oid = Number(op?.opcion_id);
+          if (!Number.isInteger(oid) || oid <= 0) continue;
+
+          const o = opcionMap.get(oid);
+          const precio_extra = toMoney(o.precio_extra, 0);
+          extraUnit += precio_extra;
+
+          opcionesComputed.push({
+            modificador_id: Number(o.modificador_id),
+            opcion_id: Number(o.id),
+            opcion_nombre: String(o.nombre),
+            precio_extra,
+          });
+        }
+
+        const total_linea = toMoney((precio_unitario + extraUnit) * it.cantidad, 0);
+        subtotal += total_linea;
+
+        computed.push({
+          producto_id: it.producto_id,
+          producto_nombre: String(p.nombre),
+          precio_unitario,
+          cantidad: it.cantidad,
+          notas: it.notas,
+          total_linea,
+          opciones: opcionesComputed,
+        });
+      }
+
+      subtotal = toMoney(subtotal, 0);
+      const total = toMoney(subtotal - descuento + impuesto, 0);
+      if (total < 0) {
+        throw Object.assign(new Error("Total inválido"), { status: 400, message: "El total no puede ser negativo." });
+      }
+
+      // insertar orden
+      const [rOrden] = await cexec(
+        `
+        INSERT INTO ordenes
+          (fecha, numero_dia, codigo, cliente_nombre, tipo, mesa, estado, notas, creado_por,
+           subtotal, descuento, impuesto, total)
+        VALUES
+          (?, ?, ?, ?, ?, ?, 'NUEVA', ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          yyyyMmDd,
+          numero_dia,
+          codigo,
+          cliente_nombre,
+          tipo,
+          mesa,
+          notas,
+          Number(req.user?.id ?? null),
+          subtotal,
+          descuento,
+          impuesto,
+          total,
+        ]
       );
 
       const ordenId = rOrden.insertId;
 
-      // detalle + opciones
-      for (const it of itemsOK) {
-        const [rDet] = await conn.execute(
-          `INSERT INTO orden_detalle
-           (orden_id, producto_id, producto_nombre, precio_unitario, cantidad, notas, total_linea)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [ordenId, it.producto_id, it.producto_nombre, it.precio_unitario, it.cantidad, it.notas, it.total_linea]
+      // insertar detalle + opciones
+      for (const line of computed) {
+        const [rDet] = await cexec(
+          `
+          INSERT INTO orden_detalle
+            (orden_id, producto_id, producto_nombre, precio_unitario, cantidad, notas, total_linea)
+          VALUES
+            (?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            Number(ordenId),
+            Number(line.producto_id),
+            line.producto_nombre,
+            line.precio_unitario,
+            Number(line.cantidad),
+            line.notas,
+            line.total_linea,
+          ]
         );
 
-        const detalleId = rDet.insertId;
+        const detId = rDet.insertId;
 
-        for (const op of it.opciones) {
-          await conn.execute(
-            `INSERT INTO orden_detalle_opciones
-             (orden_detalle_id, modificador_id, opcion_id, opcion_nombre, precio_extra)
-             VALUES (?, ?, ?, ?, ?)`,
-            [detalleId, op.modificador_id, op.opcion_id, op.opcion_nombre, op.precio_extra]
+        for (const op of line.opciones) {
+          await cexec(
+            `
+            INSERT INTO orden_detalle_opciones
+              (orden_detalle_id, modificador_id, opcion_id, opcion_nombre, precio_extra)
+            VALUES
+              (?, ?, ?, ?, ?)
+            `,
+            [Number(detId), Number(op.modificador_id), Number(op.opcion_id), op.opcion_nombre, op.precio_extra]
           );
         }
       }
 
       // historial estado inicial
-      await conn.execute(
-        `INSERT INTO orden_estados_historial (orden_id, estado, cambiado_por, comentario)
-         VALUES (?, 'NUEVA', ?, ?)`,
-        [ordenId, userId, "Orden creada"]
+      await cexec(
+        `
+        INSERT INTO orden_estados_historial (orden_id, estado, cambiado_por, comentario)
+        VALUES (?, 'NUEVA', ?, 'Orden creada')
+        `,
+        [Number(ordenId), Number(req.user?.id ?? null)]
       );
 
       await conn.commit();
 
-      await registrarBitacora(dbRaw, {
-        usuario_id: userId,
+      await bitacoraSafe(req, {
         accion: "CREAR",
         entidad: "ordenes",
-        entidad_id: ordenId,
-        detalle: `Orden creada ${codigo} (${tipoUpper}) Total: ${total.toFixed(2)}`,
-        ip: getIp(req),
+        entidad_id: Number(ordenId),
+        detalle: `Orden ${codigo} creada. Total: L ${total.toFixed(2)}`,
       });
 
-      // realtime
-      const io = getIO(req);
-      if (io) {
-        io.emit("orden:nueva", {
-          id: ordenId,
-          codigo,
-          tipo: tipoUpper,
-          mesa: mesaVal,
-          estado: "NUEVA",
-          total,
-        });
-        await emitBadges(req);
-      }
+      emitOrden(req, { action: "created", id: Number(ordenId), codigo, estado: "NUEVA" });
 
-      res.status(201).json({ ok: true, id: ordenId, codigo });
+      res.status(201).json({ ok: true, id: Number(ordenId), codigo });
     } catch (e) {
-      try { await conn.rollback(); } catch {}
-      throw e;
-    } finally {
-      conn.release();
-    }
-  })
-);
+      try {
+        await conn.rollback();
+      } catch {}
 
-/* =========================================================
-   PUT /api/ordenes/:id (EDITAR orden) SOLO si estado = NUEVA
-   Roles: admin, supervisor, cajero
-   body igual a crear (items, tipo, mesa, cliente_nombre, notas, descuento)
-========================================================= */
-router.put(
-  "/:id",
-  requireAuth,
-  allowRoles("admin", "supervisor", "cajero"),
-  asyncHandler(async (req, res) => {
-    const { id } = req.params;
-    if (!isInt(id)) return res.status(400).json({ ok: false, message: "ID inválido." });
-
-    const userId = req.user?.id;
-
-    const [rows] = await execPool(`SELECT id, estado FROM ordenes WHERE id = ?`, [Number(id)]);
-    if (!rows.length) return res.status(404).json({ ok: false, message: "Orden no encontrada." });
-    if (rows[0].estado !== "NUEVA") {
-      return res.status(409).json({ ok: false, message: "Solo puedes editar una orden en estado NUEVA." });
-    }
-
-    const {
-      tipo = "LLEVAR",
-      mesa = null,
-      cliente_nombre = null,
-      notas = null,
-      descuento = 0,
-      items = [],
-    } = req.body || {};
-
-    const tipoUpper = String(tipo).toUpperCase();
-    if (!TIPOS.includes(tipoUpper)) {
-      return res.status(400).json({ ok: false, message: "Tipo inválido." });
-    }
-
-    const desc = Math.max(0, toNum(descuento, 0));
-    const cliente = cliente_nombre ? String(cliente_nombre).trim().slice(0, 120) : null;
-    const notasOrden = notas ? String(notas).trim().slice(0, 255) : null;
-    const mesaVal = tipoUpper === "MESA" ? (mesa ? String(mesa).trim().slice(0, 20) : null) : null;
-
-    if (!pool.getConnection) {
-      return res.status(500).json({ ok: false, message: "Pool sin soporte de transacciones (getConnection)." });
-    }
-
-    const conn = await pool.getConnection();
-    try {
-      await conn.beginTransaction();
-
-      const { items: itemsOK, subtotal } = await validarYPrepararItems(conn, items);
-      const impuesto = 0;
-      const total = Math.max(0, subtotal - desc + impuesto);
-
-      // borrar detalle anterior (cascade borrará opciones)
-      await conn.execute(`DELETE FROM orden_detalle WHERE orden_id = ?`, [Number(id)]);
-
-      // reinsertar detalle
-      for (const it of itemsOK) {
-        const [rDet] = await conn.execute(
-          `INSERT INTO orden_detalle
-           (orden_id, producto_id, producto_nombre, precio_unitario, cantidad, notas, total_linea)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [Number(id), it.producto_id, it.producto_nombre, it.precio_unitario, it.cantidad, it.notas, it.total_linea]
-        );
-        const detalleId = rDet.insertId;
-
-        for (const op of it.opciones) {
-          await conn.execute(
-            `INSERT INTO orden_detalle_opciones
-             (orden_detalle_id, modificador_id, opcion_id, opcion_nombre, precio_extra)
-             VALUES (?, ?, ?, ?, ?)`,
-            [detalleId, op.modificador_id, op.opcion_id, op.opcion_nombre, op.precio_extra]
-          );
-        }
-      }
-
-      await conn.execute(
-        `UPDATE ordenes
-         SET cliente_nombre=?, tipo=?, mesa=?, notas=?, subtotal=?, descuento=?, impuesto=?, total=?
-         WHERE id=?`,
-        [cliente, tipoUpper, mesaVal, notasOrden, subtotal, desc, impuesto, total, Number(id)]
-      );
-
-      await conn.commit();
-
-      await registrarBitacora(dbRaw, {
-        usuario_id: userId,
-        accion: "ACTUALIZAR",
-        entidad: "ordenes",
-        entidad_id: Number(id),
-        detalle: `Orden actualizada. Total: ${total.toFixed(2)}`,
-        ip: getIp(req),
-      });
-
-      const io = getIO(req);
-      if (io) {
-        io.emit("orden:actualizada", { id: Number(id) });
-        await emitBadges(req);
-      }
-
-      res.json({ ok: true });
-    } catch (e) {
-      try { await conn.rollback(); } catch {}
-      throw e;
+      const status = e?.status || 500;
+      const message = e?.message || "Error al crear orden.";
+      return res.status(status).json({ ok: false, message });
     } finally {
       conn.release();
     }
@@ -691,83 +539,64 @@ router.put(
 
 /* =========================================================
    PATCH /api/ordenes/:id/estado
-   body: { estado, comentario?, force? }
-   Roles: admin, supervisor, cocina, cajero
+   body: { estado, comentario? }
+   - cocina puede cambiar estados (EN_PREPARACION/LISTA)
+   - cajero/admin/supervisor: entregar / anular
 ========================================================= */
 router.patch(
   "/:id/estado",
   requireAuth,
-  allowRoles("admin", "supervisor", "cocina", "cajero"),
+  allowRoles("admin", "supervisor", "cajero", "cocina"),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const { estado, comentario = null, force = 0 } = req.body || {};
-
     if (!isInt(id)) return res.status(400).json({ ok: false, message: "ID inválido." });
 
-    const nextEstado = String(estado || "").toUpperCase();
-    if (!ESTADOS.includes(nextEstado)) {
-      return res.status(400).json({ ok: false, message: "Estado inválido." });
-    }
+    const nuevo = String(req.body?.estado || "").toUpperCase();
+    const comentario = req.body?.comentario ? String(req.body.comentario).trim().slice(0, 255) : null;
 
-    const [rows] = await execPool(
-      `SELECT id, codigo, estado, tipo, mesa, total, asignado_cocina_por
-       FROM ordenes
-       WHERE id = ?`,
-      [Number(id)]
-    );
+    if (!ESTADOS.has(nuevo)) return res.status(400).json({ ok: false, message: "estado inválido." });
+
+    const [rows] = await exec(`SELECT id, codigo, estado, asignado_cocina_por FROM ordenes WHERE id=?`, [Number(id)]);
     if (!rows.length) return res.status(404).json({ ok: false, message: "Orden no encontrada." });
 
     const orden = rows[0];
-    const current = String(orden.estado);
 
-    // reglas de transición (admin/supervisor puede forzar)
-    const rol = (req.user?.rol || "").toLowerCase();
-    const canForce = rol === "admin" || rol === "supervisor";
-    const allowed = TRANSICIONES[current] || [];
-
-    if (!canForce && Number(force) !== 1 && !allowed.includes(nextEstado)) {
-      return res.status(409).json({
-        ok: false,
-        message: `Transición no permitida: ${current} → ${nextEstado}`,
-      });
+    // reglas simples para no “revivir” una anulada
+    if (orden.estado === "ANULADA" && nuevo !== "ANULADA") {
+      return res.status(409).json({ ok: false, message: "No puedes cambiar una orden ANULADA." });
     }
 
-    // Al pasar a EN_PREPARACION: registrar quién asignó a cocina si no existe
-    let setAsignado = false;
-    if (nextEstado === "EN_PREPARACION" && !orden.asignado_cocina_por) {
-      setAsignado = true;
+    // set asignado_cocina_por cuando entra a preparación por primera vez
+    const uid = Number(req.user?.id ?? null);
+    let setAsignado = "";
+    const params = [nuevo];
+
+    if (nuevo === "EN_PREPARACION" && !orden.asignado_cocina_por) {
+      setAsignado = ", asignado_cocina_por = ?";
+      params.push(uid);
     }
 
-    await execPool(
-      `UPDATE ordenes
-       SET estado = ? ${setAsignado ? ", asignado_cocina_por = ?" : ""}
-       WHERE id = ?`,
-      setAsignado ? [nextEstado, req.user?.id ?? null, Number(id)] : [nextEstado, Number(id)]
-    );
+    params.push(Number(id));
 
-    await execPool(
+    await exec(`UPDATE ordenes SET estado = ? ${setAsignado} WHERE id = ?`, params);
+
+    await exec(
       `INSERT INTO orden_estados_historial (orden_id, estado, cambiado_por, comentario)
        VALUES (?, ?, ?, ?)`,
-      [Number(id), nextEstado, req.user?.id ?? null, comentario ? String(comentario).slice(0, 255) : null]
+      [Number(id), nuevo, uid, comentario]
     );
 
-    await registrarBitacora(dbRaw, {
-      usuario_id: req.user?.id ?? null,
-      accion: "CAMBIAR_ESTADO",
+    await bitacoraSafe(req, {
+      accion: "ACTUALIZAR",
       entidad: "ordenes",
       entidad_id: Number(id),
-      detalle: `Orden ${orden.codigo}: ${current} → ${nextEstado}`,
-      ip: getIp(req),
+      detalle: `Estado ${orden.codigo}: ${orden.estado} -> ${nuevo}`,
     });
 
-    const io = getIO(req);
-    if (io) {
-      io.emit("orden:estado", { id: Number(id), codigo: orden.codigo, estado: nextEstado });
-      await emitBadges(req);
-    }
+    emitOrden(req, { action: "estado", id: Number(id), codigo: orden.codigo, from: orden.estado, to: nuevo });
 
     res.json({ ok: true });
   })
 );
 
-module.exports = router;
+export default router;

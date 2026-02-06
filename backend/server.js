@@ -102,7 +102,9 @@ app.use("/api/roles", rolesRoutes);
 app.use("/api/usuarios", usuariosRoutes);
 app.use("/api/permisos", permisosRoutes);
 app.use("/api/roles-permisos", rolesPermisosRoutes);
-app.use("/api/me", meRoutes);
+app.use("/api/me", meRoutes); 
+
+
 
 
 

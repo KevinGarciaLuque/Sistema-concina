@@ -1,80 +1,100 @@
-// src/api/modificadores.js
 import api from "./axios";
 
-// ===== Modificadores =====
-export const obtenerModificadores = async ({ todos = true } = {}) => {
-  // si después quieres filtrar solo activos, lo hacemos con query
-  const { data } = await api.get(`/modificadores${todos ? "" : "?activos=1"}`);
-  return data;
-};
+/** Normaliza respuestas: [] | {data:[]} | {modificadores:[]} | {rows:[]} */
+function toArray(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.modificadores)) return payload.modificadores;
+  if (Array.isArray(payload?.rows)) return payload.rows;
+  return [];
+}
 
-export const crearModificador = async (payload) => {
-  const { data } = await api.post("/modificadores", payload);
-  return data;
-};
+/** 🔁 Intento con fallback por si tu backend usa otra ruta */
+async function withFallback(primary, fallback) {
+  try {
+    return await primary();
+  } catch (e) {
+    const status = e?.response?.status;
+    if (status === 404 && fallback) return await fallback();
+    throw e;
+  }
+}
 
-export const actualizarModificador = async (id, payload) => {
-  const { data } = await api.put(`/modificadores/${id}`, payload);
-  return data;
-};
+/* =========================
+   CRUD Modificadores
+========================= */
 
-export const cambiarActivoModificador = async (id, activo) => {
-  const { data } = await api.patch(`/modificadores/${id}/activo`, { activo });
-  return data;
-};
+export async function obtenerModificadores(params = {}) {
+  const { data } = await api.get("/api/modificadores", { params });
+  return toArray(data);
+}
 
-export const eliminarModificador = async (id) => {
-  const { data } = await api.delete(`/modificadores/${id}`);
+export async function crearModificador(body) {
+  const { data } = await api.post("/api/modificadores", body);
   return data;
-};
+}
 
-// ===== Opciones =====
-export const obtenerOpciones = async (modificadorId) => {
-  const { data } = await api.get(`/modificadores/${modificadorId}/opciones`);
+export async function actualizarModificador(id, body) {
+  const { data } = await api.put(`/api/modificadores/${id}`, body);
   return data;
-};
+}
 
-export const crearOpcion = async (modificadorId, payload) => {
-  const { data } = await api.post(
-    `/modificadores/${modificadorId}/opciones`,
-    payload,
+export async function eliminarModificador(id) {
+  const { data } = await api.delete(`/api/modificadores/${id}`);
+  return data;
+}
+
+export async function toggleModificador(id, activo) {
+  const { data } = await api.patch(`/api/modificadores/${id}/activo`, { activo });
+  return data;
+}
+
+/* ==========================================
+   ✅ Modificadores por Producto (lo que te faltaba)
+   Usado por: ProductoModificadoresAdmin.jsx
+========================================== */
+
+/**
+ * Obtiene los modificadores asignados a un producto.
+ * Backend típico:
+ *  - GET /api/productos/:id/modificadores
+ * Fallback:
+ *  - GET /api/modificadores/producto/:id
+ */
+export async function obtenerModificadoresDeProducto(productoId) {
+  return withFallback(
+    async () => {
+      const { data } = await api.get(`/api/productos/${productoId}/modificadores`);
+      return toArray(data);
+    },
+    async () => {
+      const { data } = await api.get(`/api/modificadores/producto/${productoId}`);
+      return toArray(data);
+    }
   );
-  return data;
-};
+}
 
-export const actualizarOpcion = async (opcionId, payload) => {
-  const { data } = await api.put(
-    `/modificadores/opciones/${opcionId}`,
-    payload,
+/**
+ * Guarda (reemplaza) los modificadores de un producto.
+ * Espera normalmente:
+ *  - PUT /api/productos/:id/modificadores  body: { modificadores: [1,2,3] }
+ * Fallback:
+ *  - PUT /api/modificadores/producto/:id  body: { modificadores: [1,2,3] }
+ *
+ * @param {number|string} productoId
+ * @param {Array<number|string>} modificadoresIds
+ */
+export async function guardarModificadoresDeProducto(productoId, modificadoresIds = []) {
+  const payload = { modificadores: modificadoresIds };
+
+  return withFallback(
+    async () => {
+      const { data } = await api.put(`/api/productos/${productoId}/modificadores`, payload);
+      return data;
+    },
+    async () => {
+      const { data } = await api.put(`/api/modificadores/producto/${productoId}`, payload);
+      return data;
+    }
   );
-  return data;
-};
-
-export const cambiarActivoOpcion = async (opcionId, activo) => {
-  const { data } = await api.patch(
-    `/modificadores/opciones/${opcionId}/activo`,
-    { activo },
-  );
-  return data;
-};
-
-export const eliminarOpcion = async (opcionId) => {
-  const { data } = await api.delete(`/modificadores/opciones/${opcionId}`);
-  return data;
-};
-
-
-export const obtenerModificadoresDeProducto = async (productoId) => {
-  const { data } = await api.get(`/modificadores/producto/${productoId}`);
-  return data; // [modificador_id, ...]
-};
-
-export const guardarModificadoresDeProducto = async (
-  productoId,
-  modificadores,
-) => {
-  const { data } = await api.put(`/modificadores/producto/${productoId}`, {
-    modificadores,
-  });
-  return data;
-};
+}

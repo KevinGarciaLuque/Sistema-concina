@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Outlet, NavLink, useLocation, useNavigate } from "react-router-dom";
-import { Badge, Button, Container, Nav, Navbar, Offcanvas } from "react-bootstrap";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Button, Container, Navbar } from "react-bootstrap";
 import {
   FaBars,
   FaChartPie,
@@ -12,46 +12,58 @@ import {
   FaBook,
   FaCogs,
   FaSignOutAlt,
-  FaChevronRight,
-  FaChevronLeft,
+  FaUsers,
 } from "react-icons/fa";
 import { socket } from "../socket";
+import Sidebar from "./Sidebar";
 
-/* ================= UTILIDADES ================= */
-
-const getStoredUser = () => {
+/** ✅ Lee user desde localStorage o sessionStorage */
+function getStoredUser() {
   try {
-    return JSON.parse(
-      localStorage.getItem("user") ||
-      sessionStorage.getItem("user")
-    );
+    const raw = localStorage.getItem("user") || sessionStorage.getItem("user");
+    return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
-};
+}
 
-const clearSession = () => {
-  localStorage.clear();
-  sessionStorage.clear();
-};
-
-/* ================= COMPONENTE ================= */
+/** ✅ Limpia sesión completa */
+function clearSession() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+  sessionStorage.removeItem("token");
+  sessionStorage.removeItem("user");
+}
 
 export default function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // mobile offcanvas
   const [showMobile, setShowMobile] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
-  const [user, setUser] = useState(getStoredUser());
 
+  // desktop collapsed (persistente)
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("sidebarCollapsed") || "false");
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem("sidebarCollapsed", JSON.stringify(collapsed));
+  }, [collapsed]);
+
+  // user sync
+  const [user, setUser] = useState(() => getStoredUser());
   const rol = user?.rol || "sin rol";
 
-  /* ===== sincroniza usuario ===== */
   useEffect(() => {
     const sync = () => setUser(getStoredUser());
     window.addEventListener("storage", sync);
     window.addEventListener("focus", sync);
+    sync();
     return () => {
       window.removeEventListener("storage", sync);
       window.removeEventListener("focus", sync);
@@ -62,186 +74,221 @@ export default function MainLayout() {
     setUser(getStoredUser());
   }, [location.pathname]);
 
-  /* ===== logout ===== */
   const logout = () => {
     clearSession();
-    try { socket.disconnect(); } catch {}
+    try {
+      socket.disconnect();
+    } catch {}
     navigate("/login", { replace: true });
   };
 
-  /* ================= MENÚ ================= */
-
-  const menu = useMemo(() => ([
-    {
-      title: "Principal",
-      roles: ["admin", "supervisor"],
-      items: [
-        { to: "/dashboard", label: "Dashboard", icon: <FaChartPie />, roles: ["admin", "supervisor"] },
-      ],
-    },
-    {
-      title: "Operación",
-      roles: ["admin", "supervisor", "cajero", "cocina"],
-      items: [
-        { to: "/pos", label: "POS", icon: <FaCashRegister />, roles: ["admin", "supervisor", "cajero"] },
-        { to: "/cocina", label: "Cocina (KDS)", icon: <FaUtensils />, roles: ["admin", "supervisor", "cocina"] },
-        { to: "/ordenes", label: "Órdenes", icon: <FaClipboardList />, roles: ["admin", "supervisor"] },
-      ],
-    },
-    {
-      title: "Caja & Facturación",
-      roles: ["admin", "supervisor", "cajero"],
-      items: [
-        { to: "/caja", label: "Caja", icon: <FaMoneyBillWave />, roles: ["admin", "supervisor", "cajero"] },
-        { to: "/facturas", label: "Facturas", icon: <FaFileInvoiceDollar />, roles: ["admin", "supervisor", "cajero"] },
-      ],
-    },
-    {
-      title: "Auditoría",
-      roles: ["admin", "supervisor"],
-      items: [
-        { to: "/bitacora", label: "Bitácora", icon: <FaBook />, roles: ["admin", "supervisor"] },
-      ],
-    },
-    {
-      title: "Administrador",
-      roles: ["admin"],
-      items: [
-        { to: "/admin", label: "Administración", icon: <FaCogs />, roles: ["admin"] },
-      ],
-    },
-  ]), []);
-
-  const menuVisible = useMemo(() => {
-    if (rol === "sin rol") return [];
-    return menu
-      .filter(sec => sec.roles.includes(rol))
-      .map(sec => ({
-        ...sec,
-        items: sec.items.filter(i => i.roles.includes(rol)),
-      }))
-      .filter(sec => sec.items.length);
-  }, [menu, rol]);
-
-  /* ================= ITEM ================= */
-
-  const LinkItem = ({ to, icon, label }) => (
-    <Nav.Link
-      as={NavLink}
-      to={to}
-      end
-      className="d-flex align-items-center justify-content-between px-3 py-2 rounded-3"
-      style={({ isActive }) => ({
-        background: isActive ? "rgba(255,255,255,.12)" : "transparent",
-        border: "1px solid rgba(255,255,255,.08)",
-        color: "white",
-      })}
-    >
-      <span className="d-flex gap-2 align-items-center">
-        <span style={{ width: 20 }}>{icon}</span>
-        {!collapsed && <span>{label}</span>}
-      </span>
-      {!collapsed && <FaChevronRight />}
-    </Nav.Link>
+  // ✅ Menú por roles (listo para BD)
+  const menu = useMemo(
+    () => [
+      {
+        title: "Principal",
+        roles: ["admin", "supervisor"],
+        items: [
+          {
+            to: "/dashboard",
+            label: "Dashboard",
+            icon: <FaChartPie />,
+            roles: ["admin", "supervisor"],
+          },
+        ],
+      },
+      {
+        title: "Operación",
+        roles: ["admin", "supervisor", "cajero", "cocina"],
+        items: [
+          {
+            to: "/pos",
+            label: "POS",
+            icon: <FaCashRegister />,
+            roles: ["admin", "supervisor", "cajero"],
+          },
+          {
+            to: "/cocina",
+            label: "Cocina (KDS)",
+            icon: <FaUtensils />,
+            roles: ["admin", "supervisor", "cocina"],
+          },
+          {
+            to: "/ordenes",
+            label: "Órdenes",
+            icon: <FaClipboardList />,
+            roles: ["admin", "supervisor"],
+          },
+        ],
+      },
+      {
+        title: "Caja & Facturación",
+        roles: ["admin", "supervisor", "cajero"],
+        items: [
+          {
+            to: "/caja",
+            label: "Caja",
+            icon: <FaMoneyBillWave />,
+            roles: ["admin", "supervisor", "cajero"],
+          },
+          {
+            to: "/facturas",
+            label: "Facturas",
+            icon: <FaFileInvoiceDollar />,
+            roles: ["admin", "supervisor", "cajero"],
+          },
+        ],
+      },
+      {
+        title: "Auditoría",
+        roles: ["admin", "supervisor"],
+        items: [
+          {
+            to: "/bitacora",
+            label: "Bitácora",
+            icon: <FaBook />,
+            roles: ["admin", "supervisor"],
+          },
+        ],
+      },
+      {
+        title: "Administrador",
+        roles: ["admin"],
+        items: [
+          {
+            to: "/admin",
+            label: "Administración (Catálogo)",
+            icon: <FaCogs />,
+            roles: ["admin"],
+          },
+          {
+            to: "/admin/usuarios",
+            label: "Usuarios",
+            icon: <FaUsers />,
+            roles: ["admin"],
+          },
+        ],
+      },
+    ],
+    []
   );
 
-  /* ================= UI ================= */
+  const menuVisible = useMemo(() => {
+    if (!rol || rol === "sin rol") return [];
+    return menu
+      .filter((sec) => sec.roles.includes(rol))
+      .map((sec) => ({
+        ...sec,
+        items: sec.items.filter((it) => it.roles.includes(rol)),
+      }))
+      .filter((sec) => sec.items.length > 0);
+  }, [menu, rol]);
+
+  // ✅ Esto controla “cuánto” se abre el contenido en escritorio:
+  // - 1600px se ve MUY bien y aprovecha la pantalla
+  // - si lo quieres 100% full, ponlo en "100%"
+  const contentMaxWidth = 1600; // <-- puedes subirlo a 1800 o cambiarlo a "100%"
+
+  const computedContentMaxWidth =
+    typeof contentMaxWidth === "number" ? `${contentMaxWidth}px` : contentMaxWidth;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f5f7fb" }}>
-      {/* ===== TOPBAR ===== */}
-      <Navbar className="sticky-top" style={{ background: "#0f172a" }}>
-        <Container fluid className="d-flex justify-content-between">
-          <Button variant="outline-light" className="d-lg-none" onClick={() => setShowMobile(true)}>
-            <FaBars />
-          </Button>
+    <div style={{ minHeight: "100vh", background: "#f5f7fb", overflowX: "hidden" }}>
+      {/* TOPBAR */}
+      <Navbar
+        className="border-bottom sticky-top"
+        style={{ background: "linear-gradient(90deg, #0f172a 0%, #111827 100%)" }}
+      >
+        <Container fluid className="d-flex align-items-center justify-content-between">
+          <div className="d-flex align-items-center gap-2">
+            {/* Mobile open */}
+            <Button
+              variant="outline-light"
+              className="d-lg-none"
+              onClick={() => setShowMobile(true)}
+              aria-label="Abrir menú"
+            >
+              <FaBars />
+            </Button>
 
-          <div className="text-white fw-bold">Sistema Cocina</div>
+            <div className="d-flex flex-column">
+              <span className="fw-bold text-white">Sistema Cocina</span>
+              <span className="text-white-50" style={{ fontSize: 12 }}>
+                Acceso por rol
+              </span>
+            </div>
+          </div>
 
-          <Button variant="outline-danger" onClick={logout}>
-            <FaSignOutAlt />
-          </Button>
+          <div className="d-flex align-items-center gap-3">
+            <div className="d-none d-md-block text-end">
+              <div className="fw-bold text-white" style={{ lineHeight: 1.1 }}>
+                {user?.nombre || "Usuario"}
+              </div>
+              <div className="text-white-50" style={{ fontSize: 12 }}>
+                {rol}
+              </div>
+            </div>
+
+            {/* Si quieres ocultarlo en desktop y dejarlo solo móvil/tablet: cambia a "d-lg-none" */}
+            <Button variant="outline-danger" className="d-none d-sm-inline-flex" onClick={logout}>
+              <FaSignOutAlt className="me-2" />
+              Salir
+            </Button>
+          </div>
         </Container>
       </Navbar>
 
-      {/* ===== GRID ===== */}
-      <Container fluid className="py-3">
-        <div className="row g-3">
-          {/* ===== SIDEBAR DESKTOP ===== */}
-          <div className="d-none d-lg-block" style={{ width: collapsed ? 80 : 260 }}>
+      {/* ✅ DESKTOP: FLEX NO-WRAP (no se baja) + más ancho */}
+      <Container fluid className="py-3 px-2 px-md-3 px-xxl-4">
+        <div
+          className="d-lg-flex align-items-start gap-3"
+          style={{ minHeight: "calc(100vh - 90px)" }}
+        >
+          {/* Sidebar desktop */}
+          <div
+            className="d-none d-lg-block"
+            style={{
+              flex: "0 0 auto",
+              width: collapsed ? 86 : 300,
+              transition: "width .18s ease",
+            }}
+          >
+            <Sidebar
+              mode="desktop"
+              collapsed={collapsed}
+              onToggleCollapsed={() => setCollapsed((v) => !v)}
+              user={user}
+              rol={rol}
+              menuVisible={menuVisible}
+              logout={logout}
+            />
+          </div>
+
+          {/* Content */}
+          <main className="flex-grow-1" style={{ minWidth: 0 }}>
             <div
-              className="position-sticky rounded-4 shadow-sm"
               style={{
-                top: 80,
-                background: "linear-gradient(180deg,#0f172a,#111827)",
-                transition: "width .2s",
+                width: "100%",
+                maxWidth: computedContentMaxWidth,
+                margin: "0 auto",
               }}
             >
-              <div className="p-3 border-bottom text-white d-flex justify-content-between">
-                {!collapsed && <strong>Menú</strong>}
-                <Button size="sm" variant="outline-light" onClick={() => setCollapsed(!collapsed)}>
-                  {collapsed ? <FaChevronRight /> : <FaChevronLeft />}
-                </Button>
-              </div>
-
-              <div className="p-2">
-                {menuVisible.map(sec => (
-                  <div key={sec.title} className="mb-2">
-                    {!collapsed && (
-                      <div className="text-white-50 small px-3">{sec.title}</div>
-                    )}
-                    <Nav className="d-grid gap-2 px-2">
-                      {sec.items.map(item => (
-                        <LinkItem key={item.to} {...item} />
-                      ))}
-                    </Nav>
-                  </div>
-                ))}
-              </div>
-
-              <div className="p-3 border-top">
-                <Button variant="outline-danger" className="w-100" onClick={logout}>
-                  <FaSignOutAlt />
-                  {!collapsed && <span className="ms-2">Cerrar sesión</span>}
-                </Button>
-              </div>
+              <Outlet />
             </div>
-          </div>
-
-          {/* ===== CONTENT ===== */}
-          <div className="col">
-            <Outlet />
-          </div>
+          </main>
         </div>
       </Container>
 
-      {/* ===== SIDEBAR MOBILE ===== */}
-      <Offcanvas show={showMobile} onHide={() => setShowMobile(false)}>
-        <Offcanvas.Header closeButton>
-          <Offcanvas.Title>Sistema Cocina</Offcanvas.Title>
-        </Offcanvas.Header>
-        <Offcanvas.Body>
-          {menuVisible.map(sec => (
-            <div key={sec.title} className="mb-3">
-              <div className="text-muted small">{sec.title}</div>
-              <Nav className="d-grid gap-2">
-                {sec.items.map(i => (
-                  <Nav.Link
-                    key={i.to}
-                    as={NavLink}
-                    to={i.to}
-                    onClick={() => setShowMobile(false)}
-                    className="d-flex justify-content-between bg-light rounded-3 px-3 py-2"
-                  >
-                    <span className="d-flex gap-2">{i.icon}{i.label}</span>
-                    <FaChevronRight />
-                  </Nav.Link>
-                ))}
-              </Nav>
-            </div>
-          ))}
-        </Offcanvas.Body>
-      </Offcanvas>
+      {/* Sidebar mobile (Offcanvas) */}
+      <Sidebar
+        mode="mobile"
+        show={showMobile}
+        setShow={setShowMobile}
+        user={user}
+        rol={rol}
+        menuVisible={menuVisible}
+        logout={logout}
+      />
     </div>
   );
 }

@@ -1,82 +1,71 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Col,
+  Form,
+  InputGroup,
+  Modal,
+  Row,
+  Spinner,
+  Table,
+} from "react-bootstrap";
+import { FaEdit, FaPlus, FaSearch, FaToggleOn, FaToggleOff, FaTrash } from "react-icons/fa";
+import {
   obtenerModificadores,
   crearModificador,
   actualizarModificador,
-  cambiarActivoModificador,
   eliminarModificador,
-  obtenerOpciones,
-  crearOpcion,
-  actualizarOpcion,
-  cambiarActivoOpcion,
-  eliminarOpcion,
+  toggleModificador,
 } from "../../api/modificadores";
 
-import ModalConfirm from "../../components/common/ModalConfirm";
-import { FaEdit, FaTrash, FaPlus, FaExclamationTriangle } from "react-icons/fa";
+function getNombre(m) {
+  return m?.nombre ?? m?.descripcion ?? m?.titulo ?? "—";
+}
 
-const money = (n) => `L ${Number(n || 0).toFixed(2)}`;
+function getPrecio(m) {
+  const v = m?.precio ?? m?.precio_extra ?? m?.monto ?? 0;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
 
-export default function ModificadoresAdmin() {
-  const [cargando, setCargando] = useState(true);
-  const [mods, setMods] = useState([]);
-  const [opc, setOpc] = useState([]);
+export default function Modificadores() {
+  const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState({ type: "", text: "" });
 
-  const [selectedId, setSelectedId] = useState(null);
-  const selected = useMemo(
-    () => mods.find((m) => m.id === selectedId) || null,
-    [mods, selectedId],
-  );
+  const [mods, setMods] = useState([]); // ✅ SIEMPRE array
+  const modsArr = useMemo(() => (Array.isArray(mods) ? mods : []), [mods]);
 
-  const [msg, setMsg] = useState(null);
+  const [q, setQ] = useState("");
 
-  // forms
-  const [formMod, setFormMod] = useState({
-    id: null,
+  const [showForm, setShowForm] = useState(false);
+  const [edit, setEdit] = useState(null);
+
+  const [form, setForm] = useState({
     nombre: "",
-    requerido: 0,
-    multiple: 0,
+    precio: "",
     activo: 1,
   });
-  const [formOp, setFormOp] = useState({
-    id: null,
-    nombre: "",
-    precio_extra: "0",
-    activo: 1,
-    orden: "",
-  });
 
-  // confirm modal
-  const [confirm, setConfirm] = useState({
-    show: false,
-    type: "",
-    id: null,
-    nombre: "",
-  });
-  const [loadingConfirm, setLoadingConfirm] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+  const [confirm, setConfirm] = useState({ show: false, id: null, label: "" });
 
   const cargar = async () => {
-    setCargando(true);
+    setLoading(true);
+    setMsg({ type: "", text: "" });
     try {
-      const data = await obtenerModificadores({ todos: true });
-      setMods(data);
-      if (!selectedId && data.length) setSelectedId(data[0].id);
+      const data = await obtenerModificadores();
+      setMods(Array.isArray(data) ? data : []);
     } catch (e) {
-      console.error(e);
-      setMsg({ type: "danger", text: "No se pudieron cargar modificadores." });
+      setMods([]);
+      setMsg({
+        type: "danger",
+        text: e?.response?.data?.message || "No se pudieron cargar los modificadores.",
+      });
     } finally {
-      setCargando(false);
-    }
-  };
-
-  const cargarOpciones = async (modId) => {
-    try {
-      const data = await obtenerOpciones(modId);
-      setOpc(data);
-    } catch (e) {
-      console.error(e);
-      setOpc([]);
-      setMsg({ type: "danger", text: "No se pudieron cargar opciones." });
+      setLoading(false);
     }
   };
 
@@ -84,570 +73,296 @@ export default function ModificadoresAdmin() {
     cargar();
   }, []);
 
-  useEffect(() => {
-    if (selectedId) cargarOpciones(selectedId);
-    // limpiar form opción cuando cambia el modificador
-    setFormOp({
-      id: null,
-      nombre: "",
-      precio_extra: "0",
-      activo: 1,
-      orden: "",
+  const filtrados = useMemo(() => {
+    const text = q.trim().toLowerCase();
+    if (!text) return modsArr;
+
+    return modsArr.filter((m) => {
+      const base = `${getNombre(m)} ${m?.id ?? ""}`.toLowerCase();
+      return base.includes(text);
     });
-  }, [selectedId]);
+  }, [modsArr, q]);
 
-  const resetMod = () =>
-    setFormMod({ id: null, nombre: "", requerido: 0, multiple: 0, activo: 1 });
-  const resetOp = () =>
-    setFormOp({
-      id: null,
-      nombre: "",
-      precio_extra: "0",
-      activo: 1,
-      orden: "",
-    });
-
-  const submitMod = async (e) => {
-    e.preventDefault();
-    setMsg(null);
-    const payload = {
-      nombre: formMod.nombre.trim(),
-      requerido: Number(formMod.requerido) ? 1 : 0,
-      multiple: Number(formMod.multiple) ? 1 : 0,
-      activo: Number(formMod.activo) ? 1 : 0,
-    };
-    if (!payload.nombre) return;
-
-    try {
-      if (!formMod.id) await crearModificador(payload);
-      else await actualizarModificador(formMod.id, payload);
-
-      setMsg({ type: "success", text: "Modificador guardado." });
-      resetMod();
-      await cargar();
-    } catch (e) {
-      setMsg({
-        type: "danger",
-        text: e?.response?.data?.message || "Error al guardar modificador.",
-      });
-    }
+  const abrirCrear = () => {
+    setEdit(null);
+    setForm({ nombre: "", precio: "", activo: 1 });
+    setShowForm(true);
   };
 
-  const submitOp = async (e) => {
-    e.preventDefault();
-    setMsg(null);
-    if (!selectedId)
-      return setMsg({ type: "danger", text: "Selecciona un modificador." });
-
-    const payload = {
-      nombre: formOp.nombre.trim(),
-      precio_extra: Number(formOp.precio_extra || 0),
-      activo: Number(formOp.activo) ? 1 : 0,
-      orden: formOp.orden === "" ? undefined : Number(formOp.orden),
-    };
-    if (!payload.nombre) return;
-
-    try {
-      if (!formOp.id) await crearOpcion(selectedId, payload);
-      else await actualizarOpcion(formOp.id, payload);
-
-      setMsg({ type: "success", text: "Opción guardada." });
-      resetOp();
-      await cargarOpciones(selectedId);
-    } catch (e) {
-      setMsg({
-        type: "danger",
-        text: e?.response?.data?.message || "Error al guardar opción.",
-      });
-    }
-  };
-
-  const editMod = (m) =>
-    setFormMod({
-      id: m.id,
-      nombre: m.nombre || "",
-      requerido: m.requerido ? 1 : 0,
-      multiple: m.multiple ? 1 : 0,
-      activo: m.activo ? 1 : 0,
+  const abrirEditar = (m) => {
+    setEdit(m);
+    setForm({
+      nombre: getNombre(m) === "—" ? "" : getNombre(m),
+      precio: String(getPrecio(m)),
+      activo: m?.activo ?? 1,
     });
-  const editOp = (o) =>
-    setFormOp({
-      id: o.id,
-      nombre: o.nombre || "",
-      precio_extra: String(o.precio_extra ?? "0"),
-      activo: o.activo ? 1 : 0,
-      orden: o.orden ?? "",
-    });
-
-  const toggleModActivo = async (m) => {
-    const nuevo = m.activo ? 0 : 1;
-    setMods((prev) =>
-      prev.map((x) => (x.id === m.id ? { ...x, activo: nuevo } : x)),
-    );
-    try {
-      await cambiarActivoModificador(m.id, nuevo);
-    } catch (e) {
-      setMsg({ type: "danger", text: "No se pudo cambiar el estado." });
-      await cargar();
-    }
+    setShowForm(true);
   };
 
-  const toggleOpActivo = async (o) => {
-    const nuevo = o.activo ? 0 : 1;
-    setOpc((prev) =>
-      prev.map((x) => (x.id === o.id ? { ...x, activo: nuevo } : x)),
-    );
-    try {
-      await cambiarActivoOpcion(o.id, nuevo);
-    } catch (e) {
-      setMsg({ type: "danger", text: "No se pudo cambiar el estado." });
-      await cargarOpciones(selectedId);
+  const guardar = async (e) => {
+    e?.preventDefault?.();
+    setMsg({ type: "", text: "" });
+
+    const nombre = form.nombre.trim();
+    const precio = Number(form.precio || 0);
+
+    if (!nombre) {
+      setMsg({ type: "warning", text: "El nombre es obligatorio." });
+      return;
     }
-  };
+    if (!Number.isFinite(precio) || precio < 0) {
+      setMsg({ type: "warning", text: "Precio inválido." });
+      return;
+    }
 
-  const askDelete = (type, id, nombre) =>
-    setConfirm({ show: true, type, id, nombre });
-
-  const doDelete = async () => {
-    setLoadingConfirm(true);
     try {
-      if (confirm.type === "mod") {
-        await eliminarModificador(confirm.id);
-        setMsg({ type: "success", text: "Modificador eliminado." });
-        setConfirm({ show: false, type: "", id: null, nombre: "" });
-        await cargar();
-        // si borramos el seleccionado
-        if (selectedId === confirm.id) {
-          setSelectedId(null);
-          setOpc([]);
-        }
-      } else if (confirm.type === "op") {
-        await eliminarOpcion(confirm.id);
-        setMsg({ type: "success", text: "Opción eliminada." });
-        setConfirm({ show: false, type: "", id: null, nombre: "" });
-        await cargarOpciones(selectedId);
+      if (edit?.id) {
+        await actualizarModificador(edit.id, { nombre, precio, activo: Number(form.activo) ? 1 : 0 });
+        setMsg({ type: "success", text: "Modificador actualizado." });
+      } else {
+        await crearModificador({ nombre, precio, activo: Number(form.activo) ? 1 : 0 });
+        setMsg({ type: "success", text: "Modificador creado." });
       }
+      setShowForm(false);
+      await cargar();
+    } catch (e2) {
+      setMsg({ type: "danger", text: e2?.response?.data?.message || "No se pudo guardar." });
+    }
+  };
+
+  const onToggle = async (m) => {
+    const id = m?.id;
+    if (!id) return;
+    setBusyId(id);
+    setMsg({ type: "", text: "" });
+    try {
+      const next = m?.activo ? 0 : 1;
+      await toggleModificador(id, next);
+      await cargar();
     } catch (e) {
-      setMsg({
-        type: "danger",
-        text: e?.response?.data?.message || "No se pudo eliminar.",
-      });
+      setMsg({ type: "danger", text: e?.response?.data?.message || "No se pudo cambiar estado." });
     } finally {
-      setLoadingConfirm(false);
+      setBusyId(null);
+    }
+  };
+
+  const onDelete = async () => {
+    const id = confirm.id;
+    if (!id) return;
+    setBusyId(id);
+    setMsg({ type: "", text: "" });
+    try {
+      await eliminarModificador(id);
+      setMsg({ type: "success", text: "Modificador eliminado." });
+      setConfirm({ show: false, id: null, label: "" });
+      await cargar();
+    } catch (e) {
+      setMsg({ type: "danger", text: e?.response?.data?.message || "No se pudo eliminar." });
+    } finally {
+      setBusyId(null);
     }
   };
 
   return (
-    <div className="container-fluid">
-      <div className="d-flex justify-content-between align-items-end mb-3">
-        <div>
-          <h4 className="mb-0">Modificadores</h4>
-          <small className="text-muted">
-            Crea “Proteína”, “Salsa”, “Extras” y sus opciones.
-          </small>
-        </div>
-      </div>
+    <div className="p-2 p-md-3">
+      <Row className="g-2 align-items-center mb-2">
+        <Col>
+          <div className="fw-bold" style={{ fontSize: 18 }}>
+            Modificadores <Badge bg="secondary" className="ms-2">{modsArr.length}</Badge>
+          </div>
+          <div className="text-muted" style={{ fontSize: 12 }}>
+            Catálogo de extras (ej: queso, tocino, bebida, etc.)
+          </div>
+        </Col>
 
-      {msg && <div className={`alert alert-${msg.type} py-2`}>{msg.text}</div>}
+        <Col xs="auto" className="d-flex gap-2">
+          <Button variant="outline-primary" onClick={cargar} disabled={loading}>
+            {loading ? <Spinner size="sm" animation="border" className="me-2" /> : null}
+            Recargar
+          </Button>
+          <Button variant="primary" onClick={abrirCrear}>
+            <FaPlus className="me-2" />
+            Nuevo
+          </Button>
+        </Col>
+      </Row>
 
-      <div className="row g-3">
-        {/* Izquierda: modificadores */}
-        <div className="col-12 col-lg-5">
-          <div className="card shadow-sm">
-            <div className="card-body">
-              <div className="d-flex justify-content-between align-items-center mb-2">
-                <h6 className="mb-0">Lista de modificadores</h6>
-                <button
-                  className="btn btn-sm btn-outline-secondary"
-                  onClick={resetMod}
-                >
-                  Nuevo
-                </button>
-              </div>
+      {msg.text ? <Alert variant={msg.type}>{msg.text}</Alert> : null}
 
-              <div
-                style={{
-                  maxHeight: "45vh",
-                  overflow: "auto",
-                  borderRadius: 10,
-                }}
-              >
-                <table className="table table-hover align-middle mb-0">
-                  <thead
-                    className="table-light"
-                    style={{ position: "sticky", top: 0, zIndex: 2 }}
-                  >
-                    <tr>
-                      <th>Nombre</th>
-                      <th className="text-center" style={{ width: 90 }}>
-                        Req.
-                      </th>
-                      <th className="text-center" style={{ width: 90 }}>
-                        Multi
-                      </th>
-                      <th className="text-center" style={{ width: 90 }}>
-                        Activo
-                      </th>
-                      <th className="text-end" style={{ width: 130 }}>
-                        Acciones
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cargando ? (
-                      <tr>
-                        <td colSpan="5" className="text-center py-4">
-                          Cargando...
-                        </td>
-                      </tr>
-                    ) : mods.length === 0 ? (
-                      <tr>
-                        <td colSpan="5" className="text-center py-4">
-                          Sin modificadores.
-                        </td>
-                      </tr>
-                    ) : (
-                      mods.map((m) => (
-                        <tr
-                          key={m.id}
-                          className={m.id === selectedId ? "table-primary" : ""}
-                          style={{ cursor: "pointer" }}
-                          onClick={() => setSelectedId(m.id)}
-                        >
-                          <td className="fw-semibold">{m.nombre}</td>
-                          <td className="text-center">
-                            {m.requerido ? "Sí" : "No"}
-                          </td>
-                          <td className="text-center">
-                            {m.multiple ? "Sí" : "No"}
-                          </td>
-                          <td className="text-center">
-                            <div className="form-check form-switch d-inline-flex">
-                              <input
-                                className="form-check-input"
-                                type="checkbox"
-                                checked={!!m.activo}
-                                onChange={(e) => {
-                                  e.stopPropagation();
-                                  toggleModActivo(m);
-                                }}
-                              />
-                            </div>
-                          </td>
-                          <td
-                            className="text-end"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <button
-                              className="btn btn-sm btn-outline-primary me-2"
-                              title="Editar"
-                              onClick={() => editMod(m)}
-                            >
-                              <FaEdit />
-                            </button>
-                            <button
-                              className="btn btn-sm btn-outline-danger"
-                              title="Eliminar"
-                              onClick={() => askDelete("mod", m.id, m.nombre)}
-                            >
-                              <FaTrash />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Form Modificador */}
-              <hr className="my-3" />
-              <h6 className="mb-2">
-                {formMod.id ? "Editar modificador" : "Nuevo modificador"}
-              </h6>
-
-              <form onSubmit={submitMod}>
-                <label className="form-label">Nombre</label>
-                <input
-                  className="form-control mb-2"
-                  value={formMod.nombre}
-                  onChange={(e) =>
-                    setFormMod((p) => ({ ...p, nombre: e.target.value }))
-                  }
-                  required
+      <Card className="border-0 shadow-sm rounded-4">
+        <Card.Body>
+          <Row className="g-2 align-items-end mb-2">
+            <Col lg={5}>
+              <Form.Label className="fw-semibold">Buscar</Form.Label>
+              <InputGroup>
+                <InputGroup.Text><FaSearch /></InputGroup.Text>
+                <Form.Control
+                  placeholder="Nombre o id…"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
                 />
+              </InputGroup>
+            </Col>
+          </Row>
 
-                <div className="d-flex gap-4 flex-wrap my-2">
-                  <div className="form-check form-switch">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      checked={!!formMod.requerido}
-                      onChange={(e) =>
-                        setFormMod((p) => ({
-                          ...p,
-                          requerido: e.target.checked ? 1 : 0,
-                        }))
-                      }
-                    />
-                    <label className="form-check-label">Requerido</label>
-                  </div>
+          <div style={{ maxHeight: "65vh", overflow: "auto" }}>
+            <Table responsive hover className="align-middle mb-0">
+              <thead style={{ position: "sticky", top: 0, background: "white", zIndex: 1 }}>
+                <tr>
+                  <th style={{ minWidth: 70 }}>ID</th>
+                  <th style={{ minWidth: 220 }}>Nombre</th>
+                  <th style={{ minWidth: 140 }}>Precio</th>
+                  <th style={{ minWidth: 110 }}>Estado</th>
+                  <th style={{ minWidth: 220 }} className="text-end">Acciones</th>
+                </tr>
+              </thead>
 
-                  <div className="form-check form-switch">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      checked={!!formMod.multiple}
-                      onChange={(e) =>
-                        setFormMod((p) => ({
-                          ...p,
-                          multiple: e.target.checked ? 1 : 0,
-                        }))
-                      }
-                    />
-                    <label className="form-check-label">Multiple</label>
-                  </div>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={5} className="py-4 text-muted">
+                      <Spinner animation="border" size="sm" className="me-2" />
+                      Cargando…
+                    </td>
+                  </tr>
+                ) : filtrados.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-4 text-muted">
+                      No hay modificadores con ese filtro.
+                    </td>
+                  </tr>
+                ) : (
+                  filtrados.map((m) => {
+                    const activo = Number(m?.activo) === 1;
+                    const isBusy = busyId === m?.id;
 
-                  <div className="form-check form-switch">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      checked={!!formMod.activo}
-                      onChange={(e) =>
-                        setFormMod((p) => ({
-                          ...p,
-                          activo: e.target.checked ? 1 : 0,
-                        }))
-                      }
-                    />
-                    <label className="form-check-label">Activo</label>
-                  </div>
-                </div>
-
-                <div className="d-flex gap-2">
-                  <button className="btn btn-primary">
-                    {formMod.id ? "Actualizar" : "Crear"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-outline-secondary"
-                    onClick={resetMod}
-                  >
-                    Limpiar
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-
-        {/* Derecha: opciones */}
-        <div className="col-12 col-lg-7">
-          <div className="card shadow-sm">
-            <div className="card-body">
-              <div className="d-flex justify-content-between align-items-center mb-2">
-                <div>
-                  <h6 className="mb-0">Opciones</h6>
-                  <small className="text-muted">
-                    {selected ? (
-                      <>
-                        Modificador: <b>{selected.nombre}</b>
-                      </>
-                    ) : (
-                      "Selecciona un modificador"
-                    )}
-                  </small>
-                </div>
-                <button
-                  className="btn btn-sm btn-outline-secondary"
-                  onClick={resetOp}
-                  disabled={!selectedId}
-                >
-                  <FaPlus className="me-1" /> Nueva opción
-                </button>
-              </div>
-
-              <div
-                style={{
-                  maxHeight: "40vh",
-                  overflow: "auto",
-                  borderRadius: 10,
-                }}
-              >
-                <table className="table table-hover align-middle mb-0">
-                  <thead
-                    className="table-light"
-                    style={{ position: "sticky", top: 0, zIndex: 2 }}
-                  >
-                    <tr>
-                      <th>Opción</th>
-                      <th className="text-end" style={{ width: 120 }}>
-                        Extra
-                      </th>
-                      <th className="text-center" style={{ width: 90 }}>
-                        Activo
-                      </th>
-                      <th className="text-end" style={{ width: 130 }}>
-                        Acciones
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedId && opc.length === 0 ? (
-                      <tr>
-                        <td colSpan="4" className="text-center py-4">
-                          Sin opciones.
+                    return (
+                      <tr key={m.id}>
+                        <td className="text-muted">{m.id}</td>
+                        <td className="fw-semibold">{getNombre(m)}</td>
+                        <td className="fw-bold">L {getPrecio(m).toFixed(2)}</td>
+                        <td>
+                          <Badge bg={activo ? "success" : "secondary"}>
+                            {activo ? "Activo" : "Inactivo"}
+                          </Badge>
                         </td>
-                      </tr>
-                    ) : (
-                      opc.map((o) => (
-                        <tr key={o.id}>
-                          <td className="fw-semibold">{o.nombre}</td>
-                          <td className="text-end">{money(o.precio_extra)}</td>
-                          <td className="text-center">
-                            <div className="form-check form-switch d-inline-flex">
-                              <input
-                                className="form-check-input"
-                                type="checkbox"
-                                checked={!!o.activo}
-                                onChange={() => toggleOpActivo(o)}
-                              />
-                            </div>
-                          </td>
-                          <td className="text-end">
-                            <button
-                              className="btn btn-sm btn-outline-primary me-2"
-                              title="Editar"
-                              onClick={() => editOp(o)}
+                        <td className="text-end">
+                          <div className="d-inline-flex gap-2">
+                            <Button
+                              variant={activo ? "outline-success" : "outline-secondary"}
+                              size="sm"
+                              onClick={() => onToggle(m)}
+                              disabled={isBusy}
+                              className="d-inline-flex align-items-center gap-2"
+                              title="Activar/Desactivar"
+                            >
+                              {isBusy ? <Spinner size="sm" animation="border" /> : (activo ? <FaToggleOn /> : <FaToggleOff />)}
+                              {activo ? "ON" : "OFF"}
+                            </Button>
+
+                            <Button
+                              variant="outline-dark"
+                              size="sm"
+                              onClick={() => abrirEditar(m)}
+                              className="d-inline-flex align-items-center gap-2"
                             >
                               <FaEdit />
-                            </button>
-                            <button
-                              className="btn btn-sm btn-outline-danger"
-                              title="Eliminar"
-                              onClick={() => askDelete("op", o.id, o.nombre)}
+                              Editar
+                            </Button>
+
+                            <Button
+                              variant="outline-danger"
+                              size="sm"
+                              onClick={() => setConfirm({ show: true, id: m.id, label: getNombre(m) })}
+                              className="d-inline-flex align-items-center gap-2"
                             >
                               <FaTrash />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              <hr className="my-3" />
-
-              <h6 className="mb-2">
-                {formOp.id ? "Editar opción" : "Nueva opción"}
-              </h6>
-              <form onSubmit={submitOp}>
-                <div className="row g-2">
-                  <div className="col-12 col-md-6">
-                    <label className="form-label">Nombre</label>
-                    <input
-                      className="form-control"
-                      value={formOp.nombre}
-                      onChange={(e) =>
-                        setFormOp((p) => ({ ...p, nombre: e.target.value }))
-                      }
-                      required
-                      disabled={!selectedId}
-                    />
-                  </div>
-
-                  <div className="col-12 col-md-3">
-                    <label className="form-label">Precio extra</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="form-control"
-                      value={formOp.precio_extra}
-                      onChange={(e) =>
-                        setFormOp((p) => ({
-                          ...p,
-                          precio_extra: e.target.value,
-                        }))
-                      }
-                      disabled={!selectedId}
-                    />
-                  </div>
-
-                  <div className="col-12 col-md-3">
-                    <label className="form-label">Orden</label>
-                    <input
-                      type="number"
-                      className="form-control"
-                      value={formOp.orden}
-                      onChange={(e) =>
-                        setFormOp((p) => ({ ...p, orden: e.target.value }))
-                      }
-                      placeholder="auto"
-                      disabled={!selectedId}
-                    />
-                  </div>
-                </div>
-
-                <div className="d-flex gap-4 flex-wrap my-2">
-                  <div className="form-check form-switch">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      checked={!!formOp.activo}
-                      onChange={(e) =>
-                        setFormOp((p) => ({
-                          ...p,
-                          activo: e.target.checked ? 1 : 0,
-                        }))
-                      }
-                      disabled={!selectedId}
-                    />
-                    <label className="form-check-label">Activo</label>
-                  </div>
-                </div>
-
-                <div className="d-flex gap-2">
-                  <button className="btn btn-primary" disabled={!selectedId}>
-                    {formOp.id ? "Actualizar" : "Crear"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-outline-secondary"
-                    onClick={resetOp}
-                    disabled={!selectedId}
-                  >
-                    Limpiar
-                  </button>
-                </div>
-              </form>
-            </div>
+                              Eliminar
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </Table>
           </div>
-        </div>
-      </div>
+        </Card.Body>
+      </Card>
 
-      <ModalConfirm
-        show={confirm.show}
-        title={
-          confirm.type === "mod" ? "Eliminar modificador" : "Eliminar opción"
-        }
-        message={
-          <>
-            ¿Seguro que deseas eliminar <b>{confirm.nombre}</b>? <br />
+      {/* Modal Crear/Editar */}
+      <Modal show={showForm} onHide={() => setShowForm(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title className="fw-bold">
+            {edit?.id ? "Editar modificador" : "Nuevo modificador"}
+          </Modal.Title>
+        </Modal.Header>
+
+        <Form onSubmit={guardar}>
+          <Modal.Body>
+            <Form.Group className="mb-2">
+              <Form.Label className="fw-semibold">Nombre</Form.Label>
+              <Form.Control
+                value={form.nombre}
+                onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))}
+                placeholder="Ej: Queso extra"
+                autoFocus
+              />
+            </Form.Group>
+
+            <Form.Group className="mb-2">
+              <Form.Label className="fw-semibold">Precio</Form.Label>
+              <Form.Control
+                type="number"
+                step="0.01"
+                value={form.precio}
+                onChange={(e) => setForm((f) => ({ ...f, precio: e.target.value }))}
+                placeholder="0.00"
+              />
+            </Form.Group>
+
+            <Form.Check
+              type="switch"
+              id="mod-activo"
+              label="Activo"
+              checked={Number(form.activo) === 1}
+              onChange={(e) => setForm((f) => ({ ...f, activo: e.target.checked ? 1 : 0 }))}
+            />
+          </Modal.Body>
+
+          <Modal.Footer>
+            <Button variant="outline-secondary" onClick={() => setShowForm(false)}>
+              Cancelar
+            </Button>
+            <Button type="submit" variant="primary">
+              Guardar
+            </Button>
+          </Modal.Footer>
+        </Form>
+      </Modal>
+
+      {/* Confirm Delete */}
+      <Modal show={confirm.show} onHide={() => setConfirm({ show: false, id: null, label: "" })} centered>
+        <Modal.Header closeButton>
+          <Modal.Title className="fw-bold">Confirmar eliminación</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          ¿Deseas eliminar <b>{confirm.label}</b>?
+          <div className="text-muted mt-1" style={{ fontSize: 12 }}>
             Esta acción no se puede deshacer.
-          </>
-        }
-        confirmText="Sí, eliminar"
-        cancelText="Cancelar"
-        confirmVariant="danger"
-        icon={<FaExclamationTriangle />}
-        loading={loadingConfirm}
-        onCancel={() =>
-          !loadingConfirm &&
-          setConfirm({ show: false, type: "", id: null, nombre: "" })
-        }
-        onConfirm={doDelete}
-      />
+          </div>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="outline-secondary" onClick={() => setConfirm({ show: false, id: null, label: "" })}>
+            Cancelar
+          </Button>
+          <Button variant="danger" onClick={onDelete} disabled={busyId === confirm.id}>
+            {busyId === confirm.id ? <Spinner size="sm" animation="border" className="me-2" /> : null}
+            Eliminar
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
 }
