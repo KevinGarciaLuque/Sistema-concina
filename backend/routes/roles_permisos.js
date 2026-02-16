@@ -46,7 +46,7 @@ router.get(
         p.id, p.clave, p.modulo, p.descripcion,
         CASE WHEN rp.rol_id IS NULL THEN 0 ELSE 1 END AS assigned
       FROM permisos p
-      LEFT JOIN rol_permisos rp
+      LEFT JOIN roles_permisos rp
         ON rp.permiso_id = p.id AND rp.rol_id = ?
       ORDER BY p.modulo ASC, p.clave ASC
       `,

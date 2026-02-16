@@ -1,3 +1,4 @@
+//Frontend/src/components/Sidebar.jsx
 import { useMemo, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { Badge, Button, Nav, Offcanvas } from "react-bootstrap";

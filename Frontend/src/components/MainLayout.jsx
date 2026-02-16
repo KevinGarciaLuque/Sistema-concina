@@ -1,6 +1,7 @@
+// Frontend/src/components/MainLayout.jsx
 import { useEffect, useMemo, useState } from "react";
-import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Button, Container, Navbar } from "react-bootstrap";
+import { Outlet, useNavigate } from "react-router-dom";
+import { Button, Container, Navbar, Spinner } from "react-bootstrap";
 import {
   FaBars,
   FaChartPie,
@@ -13,31 +14,16 @@ import {
   FaCogs,
   FaSignOutAlt,
   FaUsers,
+  FaKey,
+  FaUserShield,
 } from "react-icons/fa";
 import { socket } from "../socket";
 import Sidebar from "./Sidebar";
-
-/** ✅ Lee user desde localStorage o sessionStorage */
-function getStoredUser() {
-  try {
-    const raw = localStorage.getItem("user") || sessionStorage.getItem("user");
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-/** ✅ Limpia sesión completa */
-function clearSession() {
-  localStorage.removeItem("token");
-  localStorage.removeItem("user");
-  sessionStorage.removeItem("token");
-  sessionStorage.removeItem("user");
-}
+import { useAuth } from "../context/AuthContext";
 
 export default function MainLayout() {
   const navigate = useNavigate();
-  const location = useLocation();
+  const { user, permisos, loading, logout: authLogout, hasPermiso, hasAnyPermiso } = useAuth();
 
   // mobile offcanvas
   const [showMobile, setShowMobile] = useState(false);
@@ -55,117 +41,111 @@ export default function MainLayout() {
     localStorage.setItem("sidebarCollapsed", JSON.stringify(collapsed));
   }, [collapsed]);
 
-  // user sync
-  const [user, setUser] = useState(() => getStoredUser());
   const rol = user?.rol || "sin rol";
 
-  useEffect(() => {
-    const sync = () => setUser(getStoredUser());
-    window.addEventListener("storage", sync);
-    window.addEventListener("focus", sync);
-    sync();
-    return () => {
-      window.removeEventListener("storage", sync);
-      window.removeEventListener("focus", sync);
-    };
-  }, []);
-
-  useEffect(() => {
-    setUser(getStoredUser());
-  }, [location.pathname]);
-
   const logout = () => {
-    clearSession();
-    try {
-      socket.disconnect();
-    } catch {}
+    authLogout();
+    try { socket.disconnect(); } catch {}
     navigate("/login", { replace: true });
   };
 
-  // ✅ Menú por roles (listo para BD)
+  // ✅ Menú por permisos (mapea EXACTO a tu tabla permisos.clave)
   const menu = useMemo(
     () => [
       {
         title: "Principal",
-        roles: ["admin", "supervisor"],
         items: [
           {
             to: "/dashboard",
             label: "Dashboard",
             icon: <FaChartPie />,
-            roles: ["admin", "supervisor"],
+            anyPerm: ["DASHBOARD.VER"],
           },
         ],
       },
       {
         title: "Operación",
-        roles: ["admin", "supervisor", "cajero", "cocina"],
         items: [
           {
             to: "/pos",
             label: "POS",
             icon: <FaCashRegister />,
-            roles: ["admin", "supervisor", "cajero"],
+            anyPerm: ["POS.USAR"],
           },
           {
             to: "/cocina",
             label: "Cocina (KDS)",
             icon: <FaUtensils />,
-            roles: ["admin", "supervisor", "cocina"],
+            anyPerm: ["COCINA.VER"],
           },
           {
             to: "/ordenes",
             label: "Órdenes",
             icon: <FaClipboardList />,
-            roles: ["admin", "supervisor"],
+            anyPerm: ["ORDENES.VER"],
           },
         ],
       },
       {
         title: "Caja & Facturación",
-        roles: ["admin", "supervisor", "cajero"],
         items: [
           {
             to: "/caja",
             label: "Caja",
             icon: <FaMoneyBillWave />,
-            roles: ["admin", "supervisor", "cajero"],
+            anyPerm: ["CAJA.ABRIR", "CAJA.CERRAR"],
           },
           {
             to: "/facturas",
             label: "Facturas",
             icon: <FaFileInvoiceDollar />,
-            roles: ["admin", "supervisor", "cajero"],
+            anyPerm: ["FACTURAS.VER", "FACTURAS.CREAR"],
           },
         ],
       },
       {
         title: "Auditoría",
-        roles: ["admin", "supervisor"],
         items: [
           {
             to: "/bitacora",
             label: "Bitácora",
             icon: <FaBook />,
-            roles: ["admin", "supervisor"],
+            anyPerm: ["BITACORA.VER"],
+          },
+          {
+            to: "/reportes",
+            label: "Reportes",
+            icon: <FaBook />,
+            anyPerm: ["REPORTES.VER"],
           },
         ],
       },
       {
         title: "Administrador",
-        roles: ["admin"],
         items: [
           {
             to: "/admin",
             label: "Administración (Catálogo)",
             icon: <FaCogs />,
-            roles: ["admin"],
+            anyPerm: ["CATALOGO.ADMIN"],
           },
           {
             to: "/admin/usuarios",
             label: "Usuarios",
             icon: <FaUsers />,
-            roles: ["admin"],
+            anyPerm: ["USUARIOS.ADMIN"],
+          },
+          {
+            to: "/admin/roles",
+            label: "Roles",
+            icon: <FaUserShield />,
+            anyPerm: ["ROLES.ADMIN"],
+          },
+          {
+            to: "/admin/permisos",
+            label: "Permisos",
+            icon: <FaKey />,
+            anyPerm: ["PERMISOS.ADMIN"],
           },
         ],
       },
@@ -173,24 +153,36 @@ export default function MainLayout() {
     []
   );
 
+  // ✅ Filtrado real por permisos (si tiene cualquiera de anyPerm)
   const menuVisible = useMemo(() => {
-    if (!rol || rol === "sin rol") return [];
+    if (!user) return [];
     return menu
-      .filter((sec) => sec.roles.includes(rol))
       .map((sec) => ({
         ...sec,
-        items: sec.items.filter((it) => it.roles.includes(rol)),
+        items: sec.items.filter((it) => {
+          const req = it.anyPerm || [];
+          return req.length === 0 ? true : hasAnyPermiso(...req);
+        }),
       }))
       .filter((sec) => sec.items.length > 0);
-  }, [menu, rol]);
+  }, [menu, user, hasAnyPermiso]);
 
-  // ✅ Esto controla “cuánto” se abre el contenido en escritorio:
-  // - 1600px se ve MUY bien y aprovecha la pantalla
-  // - si lo quieres 100% full, ponlo en "100%"
-  const contentMaxWidth = 1600; // <-- puedes subirlo a 1800 o cambiarlo a "100%"
-
+  // ancho de contenido
+  const contentMaxWidth = 1600;
   const computedContentMaxWidth =
     typeof contentMaxWidth === "number" ? `${contentMaxWidth}px` : contentMaxWidth;
+
+  // ✅ Si está cargando sesión, muestra loader elegante
+  if (loading) {
+    return (
+      <div className="d-flex align-items-center justify-content-center" style={{ minHeight: "100vh" }}>
+        <div className="text-center">
+          <Spinner animation="border" />
+          <div className="mt-2 text-muted">Cargando sesión…</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: "#f5f7fb", overflowX: "hidden" }}>
@@ -214,7 +206,7 @@ export default function MainLayout() {
             <div className="d-flex flex-column">
               <span className="fw-bold text-white">Sistema Cocina</span>
               <span className="text-white-50" style={{ fontSize: 12 }}>
-                Acceso por rol
+                Acceso por permisos
               </span>
             </div>
           </div>
@@ -225,11 +217,10 @@ export default function MainLayout() {
                 {user?.nombre || "Usuario"}
               </div>
               <div className="text-white-50" style={{ fontSize: 12 }}>
-                {rol}
+                {rol} · {user?.usuario || ""}
               </div>
             </div>
 
-            {/* Si quieres ocultarlo en desktop y dejarlo solo móvil/tablet: cambia a "d-lg-none" */}
             <Button variant="outline-danger" className="d-none d-sm-inline-flex" onClick={logout}>
               <FaSignOutAlt className="me-2" />
               Salir
@@ -238,12 +229,9 @@ export default function MainLayout() {
         </Container>
       </Navbar>
 
-      {/* ✅ DESKTOP: FLEX NO-WRAP (no se baja) + más ancho */}
+      {/* DESKTOP */}
       <Container fluid className="py-3 px-2 px-md-3 px-xxl-4">
-        <div
-          className="d-lg-flex align-items-start gap-3"
-          style={{ minHeight: "calc(100vh - 90px)" }}
-        >
+        <div className="d-lg-flex align-items-start gap-3" style={{ minHeight: "calc(100vh - 90px)" }}>
           {/* Sidebar desktop */}
           <div
             className="d-none d-lg-block"
@@ -266,20 +254,14 @@ export default function MainLayout() {
 
           {/* Content */}
           <main className="flex-grow-1" style={{ minWidth: 0 }}>
-            <div
-              style={{
-                width: "100%",
-                maxWidth: computedContentMaxWidth,
-                margin: "0 auto",
-              }}
-            >
+            <div style={{ width: "100%", maxWidth: computedContentMaxWidth, margin: "0 auto" }}>
               <Outlet />
             </div>
           </main>
         </div>
       </Container>
 
-      {/* Sidebar mobile (Offcanvas) */}
+      {/* Sidebar mobile */}
       <Sidebar
         mode="mobile"
         show={showMobile}

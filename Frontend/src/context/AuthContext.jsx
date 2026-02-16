@@ -4,24 +4,35 @@ import api from "../api/axios";
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null); // {id, nombre, rol}
+  const [user, setUser] = useState(null);        // { id, nombre, usuario, rol, rol_id }
+  const [permisos, setPermisos] = useState([]);  // ['POS.USAR', 'COCINA.VER', ...]
   const [loading, setLoading] = useState(true);
 
   const isAuth = !!user;
 
   async function login(usuario, password) {
     const { data } = await api.post("/auth/login", { usuario, password });
+
+    // Espera: { ok, token, user, permisos }
     localStorage.setItem("token", data.token);
-    setUser(data.user);
+    localStorage.setItem("user", JSON.stringify(data.user || null));
+    localStorage.setItem("permisos", JSON.stringify(data.permisos || []));
+
+    setUser(data.user || null);
+    setPermisos(data.permisos || []);
+
     return data.user;
   }
 
   function logout() {
     localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    localStorage.removeItem("permisos");
     setUser(null);
+    setPermisos([]);
   }
 
-  // ✅ recupera sesión al recargar
+  // ✅ Recupera sesión al recargar (validando el token contra /api/me)
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
@@ -29,30 +40,65 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    // Como el JWT ya contiene rol/nombre, podrías guardar el user en localStorage.
-    // Pero lo más seguro es guardarlo cuando haces login.
-    // Aun así, si refrescas y perdiste user, lo reconstruimos desde un endpoint o desde storage.
-
-    const rawUser = localStorage.getItem("user");
-    if (rawUser) {
-      setUser(JSON.parse(rawUser));
+    // (Opcional) pinta rápido desde storage mientras valida
+    try {
+      const rawUser = localStorage.getItem("user");
+      const rawPerm = localStorage.getItem("permisos");
+      if (rawUser) setUser(JSON.parse(rawUser));
+      if (rawPerm) setPermisos(JSON.parse(rawPerm));
+    } catch {
+      // si algo está corrupto, limpias
+      logout();
       setLoading(false);
       return;
     }
 
-    // fallback opcional: si no existe user, invalidamos token
-    setLoading(false);
+    (async () => {
+      try {
+        // Tu backend: app.use("/api/me", meRoutes)
+        // meRoutes: GET "/" => { ok, user, permisos }
+        const { data } = await api.get("/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (data?.ok) {
+          const u = data.user || null;
+          const p = data.permisos || [];
+
+          setUser(u);
+          setPermisos(p);
+
+          localStorage.setItem("user", JSON.stringify(u));
+          localStorage.setItem("permisos", JSON.stringify(p));
+        } else {
+          logout();
+        }
+      } catch (e) {
+        // Token inválido/expirado o backend caído
+        logout();
+      } finally {
+        setLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ cada vez que user cambie, persistimos
-  useEffect(() => {
-    if (user) localStorage.setItem("user", JSON.stringify(user));
-    else localStorage.removeItem("user");
-  }, [user]);
+  // helpers útiles
+  const hasPermiso = (clave) => permisos.includes(String(clave));
+  const hasAnyPermiso = (...claves) => claves.some((c) => permisos.includes(String(c)));
 
   const value = useMemo(
-    () => ({ user, isAuth, loading, login, logout }),
-    [user, isAuth, loading]
+    () => ({
+      user,
+      permisos,
+      isAuth,
+      loading,
+      login,
+      logout,
+      hasPermiso,
+      hasAnyPermiso,
+    }),
+    [user, permisos, isAuth, loading]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

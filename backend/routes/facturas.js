@@ -1,3 +1,4 @@
+// backend/routes/facturas.js
 import express from "express";
 import * as dbMod from "../db.js";
 import * as authMod from "../middleware/auth.js";
@@ -5,7 +6,9 @@ import * as rolesMod from "../middleware/roles.js";
 
 const router = express.Router();
 
-// ===== pool compatible (default o named) =====
+/* =========================
+   DB pool compatible
+========================= */
 const pool =
   (dbMod.default && (dbMod.default.execute || dbMod.default.query) ? dbMod.default : null) ||
   dbMod.pool ||
@@ -14,27 +17,38 @@ const pool =
   null;
 
 if (!pool) {
-  throw new Error("No se pudo obtener el pool de DB desde db.js (export default o export const pool).");
+  throw new Error(
+    "No se pudo obtener el pool de DB desde db.js (export default o export const pool)."
+  );
 }
 
 const exec = (sql, params = []) =>
   pool.execute ? pool.execute(sql, params) : pool.query(sql, params);
 
-// ===== middlewares compatibles =====
+/* =========================
+   Middlewares compatibles
+========================= */
 const requireAuth = authMod.default || authMod.requireAuth || authMod.auth;
-const allowRoles = rolesMod.default || rolesMod.allowRoles || rolesMod.permitirRoles || rolesMod.roles;
+const allowRoles =
+  rolesMod.default || rolesMod.allowRoles || rolesMod.permitirRoles || rolesMod.roles;
 
 if (!requireAuth) throw new Error("No se encontró middleware de auth en middleware/auth.js");
 if (!allowRoles) throw new Error("No se encontró middleware de roles en middleware/roles.js");
 
-// ===== helpers =====
-const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+/* =========================
+   Helpers
+========================= */
+const asyncHandler = (fn) => (req, res, next) =>
+  Promise.resolve(fn(req, res, next)).catch(next);
+
 const isInt = (v) => Number.isInteger(Number(v));
 const toNum = (v, def = 0) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : def;
 };
 
+// Si tu UI manda MIXTO como un método, lo aceptamos.
+// (También puedes mandar varios pagos: EFECTIVO + TARJETA, etc.)
 const METODOS = ["EFECTIVO", "TARJETA", "TRANSFERENCIA", "MIXTO"];
 
 function pad(n, len = 6) {
@@ -95,8 +109,10 @@ async function emitirBadges(req) {
   });
 }
 
-async function getCajaActiva(userId) {
-  const [rows] = await exec(
+// ✅ Caja activa (pool o conn)
+async function getCajaActiva(userId, conn = null) {
+  const runner = conn?.execute ? conn : { execute: exec };
+  const [rows] = await runner.execute(
     `SELECT id
      FROM caja_sesiones
      WHERE usuario_id = ? AND estado = 'ABIERTA'
@@ -105,6 +121,13 @@ async function getCajaActiva(userId) {
     [Number(userId)]
   );
   return rows[0]?.id || null;
+}
+
+// ✅ Emit update para que el módulo Caja se refresque
+function emitCajaUpdate(req, payload) {
+  const io = getIO(req);
+  if (!io) return;
+  io.to("caja").emit("caja:update", { ts: Date.now(), ...payload });
 }
 
 async function cargarDetalleOrden(ordenId) {
@@ -195,7 +218,6 @@ router.get(
         where.push("f.caja_sesion_id = ?");
         params.push(Number(cajaId));
       } else {
-        // si no tiene caja abierta, puede ver 0 resultados (mejor UX que error)
         where.push("1 = 0");
       }
     }
@@ -274,7 +296,7 @@ router.get(
 
     const factura = fRows[0];
 
-    // seguridad cajero: solo lo de su caja activa
+    // seguridad cajero: solo lo de su caja activa (si existe)
     const rol = String(req.user?.rol || "").toLowerCase();
     if (rol === "cajero") {
       const cajaId = await getCajaActiva(req.user?.id);
@@ -318,6 +340,10 @@ router.get(
        { metodo, monto, referencia?, efectivo_recibido? }
      ]
    }
+
+   ✅ CORRECCIÓN CLAVE:
+   - Requiere caja ABIERTA para facturar (admin/supervisor/cajero)
+   - Emite "caja:update" para refrescar módulo Caja
 ========================================================= */
 router.post(
   "/",
@@ -325,7 +351,6 @@ router.post(
   allowRoles("admin", "supervisor", "cajero"),
   asyncHandler(async (req, res) => {
     const userId = req.user?.id;
-    const rol = String(req.user?.rol || "").toLowerCase();
 
     const {
       orden_id,
@@ -343,28 +368,29 @@ router.post(
       return res.status(400).json({ ok: false, message: "Debes enviar al menos 1 pago." });
     }
 
-    // Cajero: requiere caja abierta
-    let cajaSesionId = null;
-    if (rol === "cajero") {
-      cajaSesionId = await getCajaActiva(userId);
-      if (!cajaSesionId) {
-        return res.status(409).json({
-          ok: false,
-          code: "CAJA_CERRADA",
-          message: "No hay caja abierta. Abre caja para facturar.",
-        });
-      }
-    }
-
     if (!pool.getConnection) {
-      return res.status(500).json({ ok: false, message: "Pool sin soporte de transacciones (getConnection)." });
+      return res.status(500).json({
+        ok: false,
+        message: "Pool sin soporte de transacciones (getConnection).",
+      });
     }
 
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
 
-      // Orden
+      // ✅ Requiere caja abierta para facturar (para TODOS)
+      const cajaSesionId = await getCajaActiva(userId, conn);
+      if (!cajaSesionId) {
+        await conn.rollback();
+        return res.status(409).json({
+          ok: false,
+          code: "CAJA_CERRADA",
+          message: "No hay caja abierta. Abre caja para facturar.",
+        });
+      }
+
+      // Orden (lock)
       const [oRows] = await conn.execute(
         `SELECT id, codigo, estado, cliente_nombre, subtotal, descuento, impuesto, total
          FROM ordenes
@@ -385,9 +411,9 @@ router.post(
         return res.status(409).json({ ok: false, message: "No se puede facturar una orden ANULADA." });
       }
 
-      // Evitar facturar 2 veces la misma orden
+      // Evitar facturar 2 veces la misma orden (lock)
       const [existe] = await conn.execute(
-        `SELECT id FROM facturas WHERE orden_id = ? LIMIT 1`,
+        `SELECT id FROM facturas WHERE orden_id = ? LIMIT 1 FOR UPDATE`,
         [Number(orden_id)]
       );
       if (existe.length) {
@@ -407,11 +433,11 @@ router.post(
       const total = toNum(orden.total, 0);
 
       // Cliente (si no lo mandan, usa el de la orden)
-      const cNombre = (cliente_nombre ?? orden.cliente_nombre ?? null);
-      const cRTN = (cliente_rtn ?? null);
-      const cDir = (cliente_direccion ?? null);
+      const cNombre = cliente_nombre ?? orden.cliente_nombre ?? null;
+      const cRTN = cliente_rtn ?? null;
+      const cDir = cliente_direccion ?? null;
 
-      // Validación pagos (suma debe igualar total)
+      // Validación y normalización pagos
       const pagosNorm = pagos.map((p) => {
         const metodo = String(p?.metodo || "EFECTIVO").toUpperCase();
         const monto = toNum(p?.monto, 0);
@@ -420,9 +446,11 @@ router.post(
           metodo: METODOS.includes(metodo) ? metodo : "EFECTIVO",
           monto,
           referencia: p?.referencia ? String(p.referencia).trim().slice(0, 60) : null,
-          efectivo_recibido: p?.efectivo_recibido === undefined || p?.efectivo_recibido === null
-            ? null
-            : toNum(p.efectivo_recibido, null),
+          // null si no viene; número si viene
+          efectivo_recibido:
+            p?.efectivo_recibido === undefined || p?.efectivo_recibido === null
+              ? null
+              : toNum(p.efectivo_recibido, 0),
         };
       });
 
@@ -440,11 +468,13 @@ router.post(
         return res.status(409).json({
           ok: false,
           code: "PAGOS_NO_CUADRAN",
-          message: `Los pagos (${sumaPagos.toFixed(2)}) no cuadran con el total (${total.toFixed(2)}).`,
+          message: `Los pagos (${sumaPagos.toFixed(2)}) no cuadran con el total (${total.toFixed(
+            2
+          )}).`,
         });
       }
 
-      // Crear factura con número temporal (luego se actualiza con el ID)
+      // Crear factura con número temporal
       const temp = `TMP-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 
       const [rFactura] = await conn.execute(
@@ -455,25 +485,28 @@ router.post(
          VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`,
         [
           Number(orden_id),
-          cajaSesionId, // null permitido por BD
+          Number(cajaSesionId),
           temp,
           cNombre ? String(cNombre).trim().slice(0, 120) : null,
           cRTN ? String(cRTN).trim().slice(0, 30) : null,
           cDir ? String(cDir).trim().slice(0, 200) : null,
-          subtotal, descuento, impuesto, total,
+          subtotal,
+          descuento,
+          impuesto,
+          total,
         ]
       );
 
       const facturaId = rFactura.insertId;
 
-      // número final único, bonito y estable
+      // número final bonito y estable
       const [[hoyRow]] = await conn.execute(`SELECT DATE_FORMAT(NOW(), '%Y%m%d') AS ymd`);
       const numeroFactura = `F-${hoyRow.ymd}-${pad(facturaId, 6)}`;
 
-      await conn.execute(
-        `UPDATE facturas SET numero_factura = ? WHERE id = ?`,
-        [numeroFactura, Number(facturaId)]
-      );
+      await conn.execute(`UPDATE facturas SET numero_factura = ? WHERE id = ?`, [
+        numeroFactura,
+        Number(facturaId),
+      ]);
 
       // Insert pagos
       for (const p of pagosNorm) {
@@ -500,18 +533,22 @@ router.post(
         );
       }
 
-      // Marcar orden como ENTREGADA (flujo POS típico tras cobro)
+      // Marcar orden como ENTREGADA tras cobro (si aplica)
       if (String(orden.estado).toUpperCase() !== "ENTREGADA") {
-        await conn.execute(
-          `UPDATE ordenes SET estado = 'ENTREGADA' WHERE id = ?`,
-          [Number(orden_id)]
-        );
+        await conn.execute(`UPDATE ordenes SET estado = 'ENTREGADA' WHERE id = ?`, [
+          Number(orden_id),
+        ]);
 
-        await conn.execute(
-          `INSERT INTO orden_estados_historial (orden_id, estado, cambiado_por, comentario)
-           VALUES (?, 'ENTREGADA', ?, ?)`,
-          [Number(orden_id), userId ?? null, `Facturada ${numeroFactura}`]
-        );
+        // si tu tabla existe (tu proyecto la usa), registramos historial
+        try {
+          await conn.execute(
+            `INSERT INTO orden_estados_historial (orden_id, estado, cambiado_por, comentario)
+             VALUES (?, 'ENTREGADA', ?, ?)`,
+            [Number(orden_id), userId ?? null, `Facturada ${numeroFactura}`]
+          );
+        } catch {
+          // si no existe la tabla, no tumbamos la venta
+        }
       }
 
       await conn.commit();
@@ -521,7 +558,9 @@ router.post(
         accion: "CREAR",
         entidad: "facturas",
         entidad_id: Number(facturaId),
-        detalle: `Factura ${numeroFactura} creada para orden ${orden.codigo}. Total ${total.toFixed(2)}`,
+        detalle: `Factura ${numeroFactura} creada para orden ${orden.codigo}. Total ${total.toFixed(
+          2
+        )}`,
       });
 
       // realtime
@@ -532,6 +571,15 @@ router.post(
           numero_factura: numeroFactura,
           orden_id: Number(orden_id),
           orden_codigo: orden.codigo,
+          caja_sesion_id: Number(cajaSesionId),
+          total,
+        });
+
+        // ✅ clave: Caja.jsx escucha "caja:update"
+        emitCajaUpdate(req, {
+          action: "factura_creada",
+          caja_sesion_id: Number(cajaSesionId),
+          factura_id: Number(facturaId),
           total,
         });
 
@@ -539,9 +587,16 @@ router.post(
         await emitirBadges(req);
       }
 
-      res.status(201).json({ ok: true, id: Number(facturaId), numero_factura: numeroFactura });
+      res.status(201).json({
+        ok: true,
+        id: Number(facturaId),
+        numero_factura: numeroFactura,
+        caja_sesion_id: Number(cajaSesionId),
+      });
     } catch (e) {
-      try { await conn.rollback(); } catch {}
+      try {
+        await conn.rollback();
+      } catch {}
       throw e;
     } finally {
       conn.release();

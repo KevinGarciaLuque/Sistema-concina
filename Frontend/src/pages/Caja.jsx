@@ -12,9 +12,10 @@ import {
   Row,
   Spinner,
   Table,
+  
 } from "react-bootstrap";
-import api from "../api"; // ✅ ajusta si tu api está en otra ruta
-import { socket } from "../socket"; // ✅ si lo tienes (opcional)
+ import api from "../api";
+
 import {
   FaCashRegister,
   FaLockOpen,

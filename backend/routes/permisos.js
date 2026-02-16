@@ -1,3 +1,4 @@
+//backend/routes/permisos.js
 import express from "express";
 import * as dbMod from "../db.js";
 import * as authMod from "../middleware/auth.js";

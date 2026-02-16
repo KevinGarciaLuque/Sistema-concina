@@ -14,7 +14,7 @@ import Bitacora from "../pages/Bitacora";
 // Admin
 import Admin from "../pages/admin/Admin";
 import ProductoModificadoresAdmin from "../pages/admin/ProductoModificadoresAdmin";
-import GestionUsuarios from "../pages/admin/GestionUsuarios"; // ✅ si ya lo creaste aquí
+import GestionUsuarios from "../pages/admin/GestionUsuarios";
 
 // Auth + Layout
 import ProtectedRoute from "../components/ProtectedRoute";
@@ -26,89 +26,81 @@ export default function AppRoutes() {
       {/* Público */}
       <Route path="/login" element={<Login />} />
 
-      {/* Privado con Layout (Navbar + Sidebar) */}
+      {/* Privado con Layout (solo autenticación) */}
       <Route
         element={
-          <ProtectedRoute roles={["admin", "supervisor", "cajero", "cocina"]}>
+          <ProtectedRoute>
             <MainLayout />
           </ProtectedRoute>
         }
       >
-        {/* Dashboard */}
         <Route
           path="/dashboard"
           element={
-            <ProtectedRoute roles={["admin", "supervisor"]}>
+            <ProtectedRoute permiso="DASHBOARD.VER">
               <Dashboard />
             </ProtectedRoute>
           }
         />
 
-        {/* POS */}
         <Route
           path="/pos"
           element={
-            <ProtectedRoute roles={["admin", "supervisor", "cajero"]}>
+            <ProtectedRoute permiso="POS.USAR">
               <Pos />
             </ProtectedRoute>
           }
         />
 
-        {/* ✅ Cocina ahora CON layout */}
         <Route
           path="/cocina"
           element={
-            <ProtectedRoute roles={["admin", "supervisor", "cocina"]}>
+            <ProtectedRoute permiso="COCINA.VER">
               <Cocina />
             </ProtectedRoute>
           }
         />
 
-        {/* Órdenes (Monitor) */}
         <Route
           path="/ordenes"
           element={
-            <ProtectedRoute roles={["admin", "supervisor"]}>
+            <ProtectedRoute permiso="ORDENES.VER">
               <Ordenes />
             </ProtectedRoute>
           }
         />
 
-        {/* Caja */}
         <Route
           path="/caja"
           element={
-            <ProtectedRoute roles={["admin", "supervisor", "cajero"]}>
+            <ProtectedRoute permisos={["CAJA.ABRIR", "CAJA.CERRAR"]}>
               <Caja />
             </ProtectedRoute>
           }
         />
 
-        {/* Facturas */}
         <Route
           path="/facturas"
           element={
-            <ProtectedRoute roles={["admin", "supervisor", "cajero"]}>
+            <ProtectedRoute permisos={["FACTURAS.VER", "FACTURAS.CREAR"]}>
               <Facturas />
             </ProtectedRoute>
           }
         />
 
-        {/* Bitácora */}
         <Route
           path="/bitacora"
           element={
-            <ProtectedRoute roles={["admin", "supervisor"]}>
+            <ProtectedRoute permiso="BITACORA.VER">
               <Bitacora />
             </ProtectedRoute>
           }
         />
 
-        {/* Admin */}
         <Route
           path="/admin"
           element={
-            <ProtectedRoute roles={["admin"]}>
+            <ProtectedRoute permiso="CATALOGO.ADMIN">
               <Admin />
             </ProtectedRoute>
           }
@@ -117,7 +109,7 @@ export default function AppRoutes() {
         <Route
           path="/admin/usuarios"
           element={
-            <ProtectedRoute roles={["admin"]}>
+            <ProtectedRoute permiso="USUARIOS.ADMIN">
               <GestionUsuarios />
             </ProtectedRoute>
           }
@@ -126,7 +118,7 @@ export default function AppRoutes() {
         <Route
           path="/admin/productos/:id/modificadores"
           element={
-            <ProtectedRoute roles={["admin"]}>
+            <ProtectedRoute permiso="CATALOGO.ADMIN">
               <ProductoModificadoresAdmin />
             </ProtectedRoute>
           }
