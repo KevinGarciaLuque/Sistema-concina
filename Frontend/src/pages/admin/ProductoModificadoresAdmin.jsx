@@ -1,3 +1,4 @@
+// src/pages/admin/ProductoModificadoresAdmin.jsx
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 
@@ -10,6 +11,17 @@ import {
 } from "../../api/modificadores";
 
 import { FaSave, FaSyncAlt, FaArrowLeft } from "react-icons/fa";
+
+/* ========= Helpers ========= */
+function toArray(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.categorias)) return payload.categorias;
+  if (Array.isArray(payload?.productos)) return payload.productos;
+  if (Array.isArray(payload?.modificadores)) return payload.modificadores;
+  if (Array.isArray(payload?.rows)) return payload.rows;
+  return [];
+}
 
 export default function ProductoModificadoresAdmin() {
   const { id } = useParams();
@@ -33,13 +45,15 @@ export default function ProductoModificadoresAdmin() {
 
   const catMap = useMemo(() => {
     const m = new Map();
-    categorias.forEach((c) => m.set(c.id, c));
+    (Array.isArray(categorias) ? categorias : []).forEach((c) =>
+      m.set(c.id, c),
+    );
     return m;
   }, [categorias]);
 
   const productosFiltrados = useMemo(() => {
     const q = buscar.trim().toLowerCase();
-    return productos
+    return (Array.isArray(productos) ? productos : [])
       .filter((p) => {
         if (categoriaId && String(p.categoria_id) !== String(categoriaId))
           return false;
@@ -56,7 +70,7 @@ export default function ProductoModificadoresAdmin() {
   }, [productos, categoriaId, buscar, catMap]);
 
   const modsActivosOrden = useMemo(() => {
-    return [...mods]
+    return (Array.isArray(mods) ? mods : [])
       .filter((m) => Number(m.activo) === 1)
       .sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
   }, [mods]);
@@ -70,8 +84,11 @@ export default function ProductoModificadoresAdmin() {
   const cargarAsignacion = async (productoId) => {
     setMsg(null);
     try {
-      const ids = await obtenerModificadoresDeProducto(productoId);
-      const setIds = new Set(ids.map(Number));
+      const idsRaw = await obtenerModificadoresDeProducto(productoId);
+      const ids = toArray(idsRaw)
+        .map(Number)
+        .filter((n) => Number.isFinite(n));
+      const setIds = new Set(ids);
       setSeleccion(setIds);
       setSeleccionInicial(new Set(setIds));
     } catch (e) {
@@ -90,15 +107,24 @@ export default function ProductoModificadoresAdmin() {
     setMsg(null);
 
     try {
-      const cats = await obtenerCategorias({ todas: true });
-      setCategorias([...cats].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0)));
+      // ✅ Categorías
+      const catsRaw = await obtenerCategorias({ todas: true });
+      const cats = toArray(catsRaw)
+        .slice()
+        .sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
+      setCategorias(cats);
 
-      const prods = await obtenerProductos();
+      // ✅ Productos
+      const prodsRaw = await obtenerProductos();
+      const prods = toArray(prodsRaw);
       setProductos(prods);
 
-      const modifs = await obtenerModificadores({ todos: true });
+      // ✅ Modificadores
+      const modifsRaw = await obtenerModificadores({ todos: true });
+      const modifs = toArray(modifsRaw);
       setMods(modifs);
 
+      // ✅ Producto seleccionado (por URL o primero)
       if (prods.length > 0) {
         if (id) {
           const found = prods.find((p) => String(p.id) === String(id));
@@ -127,8 +153,10 @@ export default function ProductoModificadoresAdmin() {
 
   // si cambia el id de la URL, selecciona ese producto
   useEffect(() => {
-    if (!id || productos.length === 0) return;
-    const found = productos.find((p) => String(p.id) === String(id));
+    if (!id || productosFiltrados.length === 0) return;
+    const found = (Array.isArray(productos) ? productos : []).find(
+      (p) => String(p.id) === String(id),
+    );
     if (found && productoSel?.id !== found.id) setProductoSel(found);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, productos]);
@@ -156,6 +184,7 @@ export default function ProductoModificadoresAdmin() {
     if (!productoSel?.id) return;
     setGuardando(true);
     setMsg(null);
+
     try {
       await guardarModificadoresDeProducto(
         productoSel.id,
@@ -232,9 +261,9 @@ export default function ProductoModificadoresAdmin() {
                     onChange={(e) => setCategoriaId(e.target.value)}
                   >
                     <option value="">Todas</option>
-                    {categorias.map((c) => (
+                    {(Array.isArray(categorias) ? categorias : []).map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.orden}. {c.nombre}
+                        {c.orden ?? 0}. {c.nombre}
                       </option>
                     ))}
                   </select>
@@ -297,7 +326,6 @@ export default function ProductoModificadoresAdmin() {
                             style={{ cursor: "pointer" }}
                             onClick={() => {
                               setProductoSel(p);
-                              // ✅ opcional: actualiza la URL para link directo
                               navigate(
                                 `/admin/productos/${p.id}/modificadores`,
                               );

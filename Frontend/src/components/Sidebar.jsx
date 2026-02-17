@@ -1,8 +1,13 @@
-//Frontend/src/components/Sidebar.jsx
+// Frontend/src/components/Sidebar.jsx
 import { useMemo, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { Badge, Button, Nav, Offcanvas } from "react-bootstrap";
-import { FaChevronRight, FaSignOutAlt, FaAngleRight, FaAngleLeft } from "react-icons/fa";
+import {
+  FaChevronRight,
+  FaSignOutAlt,
+  FaAngleRight,
+  FaAngleLeft,
+} from "react-icons/fa";
 
 export default function Sidebar({
   mode = "desktop", // "desktop" | "mobile"
@@ -33,10 +38,23 @@ export default function Sidebar({
       shadowHover: "0 14px 34px rgba(0,0,0,.28)",
       textMuted: "rgba(255,255,255,.62)",
     }),
-    []
+    [],
   );
 
   const closeMobile = () => setShow?.(false);
+
+  /**
+   * ✅ FIX: el "end" NO debe ir siempre.
+   * - Si la ruta es "/dashboard" => end=true para que no se active en "/dashboard/..."
+   * - Si la ruta es "/admin" => end=false para que siga activo en "/admin/usuarios", "/admin/productos/..."
+   */
+  const shouldEnd = (to) => {
+    const t = String(to || "");
+    if (!t.startsWith("/")) return true;
+    // rutas "padre" que deben quedar activas en subrutas
+    if (t === "/admin") return false;
+    return true;
+  };
 
   const LinkItemDark = ({ to, icon, label }) => {
     const isHovered = hoveredTo === to;
@@ -44,7 +62,7 @@ export default function Sidebar({
     return (
       <NavLink
         to={to}
-        end
+        end={shouldEnd(to)}
         onClick={closeMobile}
         onMouseEnter={() => setHoveredTo(to)}
         onMouseLeave={() => setHoveredTo(null)}
@@ -61,9 +79,17 @@ export default function Sidebar({
             padding: collapsed ? "10px 10px" : "10px 14px",
             borderRadius: 14,
 
-            background: active ? theme.activeBg : isHovered ? theme.hoverBg : "transparent",
+            background: active
+              ? theme.activeBg
+              : isHovered
+                ? theme.hoverBg
+                : "transparent",
             border: `1px solid ${
-              active ? theme.activeBorder : isHovered ? theme.hoverBorder : theme.border
+              active
+                ? theme.activeBorder
+                : isHovered
+                  ? theme.hoverBorder
+                  : theme.border
             }`,
 
             color: "white",
@@ -84,7 +110,10 @@ export default function Sidebar({
 
           return (
             <>
-              <span className="d-flex align-items-center gap-2" style={{ minWidth: 0 }}>
+              <span
+                className="d-flex align-items-center gap-2"
+                style={{ minWidth: 0 }}
+              >
                 {/* Barra activa */}
                 <span
                   style={{
@@ -92,7 +121,9 @@ export default function Sidebar({
                     height: 22,
                     borderRadius: 999,
                     background: active ? theme.activeBar : "transparent",
-                    boxShadow: active ? "0 0 0 2px rgba(96,165,250,.10)" : "none",
+                    boxShadow: active
+                      ? "0 0 0 2px rgba(96,165,250,.10)"
+                      : "none",
                     marginRight: collapsed ? 6 : 0,
                     transition: "all .16s ease",
                   }}
@@ -108,8 +139,8 @@ export default function Sidebar({
                     background: active
                       ? "rgba(96,165,250,.14)"
                       : isHoveredNow
-                      ? "rgba(255,255,255,.08)"
-                      : "rgba(255,255,255,.05)",
+                        ? "rgba(255,255,255,.08)"
+                        : "rgba(255,255,255,.05)",
                     border: "1px solid rgba(255,255,255,.08)",
                     transition: "all .16s ease",
                     flexShrink: 0,
@@ -119,7 +150,10 @@ export default function Sidebar({
                 </span>
 
                 {!collapsed && (
-                  <span className="fw-semibold text-truncate" style={{ maxWidth: 170 }}>
+                  <span
+                    className="fw-semibold text-truncate"
+                    style={{ maxWidth: 170 }}
+                  >
                     {label}
                   </span>
                 )}
@@ -129,7 +163,9 @@ export default function Sidebar({
                 <FaChevronRight
                   style={{
                     opacity: active || isHoveredNow ? 0.9 : 0.65,
-                    transform: isHoveredNow ? "translateX(2px)" : "translateX(0)",
+                    transform: isHoveredNow
+                      ? "translateX(2px)"
+                      : "translateX(0)",
                     transition: "all .16s ease",
                   }}
                 />
@@ -167,7 +203,10 @@ export default function Sidebar({
         `}</style>
 
         {/* Header */}
-        <div className="px-3 pt-3 pb-2 border-bottom" style={{ borderColor: theme.border }}>
+        <div
+          className="px-3 pt-3 pb-2 border-bottom"
+          style={{ borderColor: theme.border }}
+        >
           <div className="d-flex align-items-center justify-content-between">
             <div className="d-flex align-items-center gap-2">
               <Button
@@ -191,7 +230,9 @@ export default function Sidebar({
               {!collapsed && (
                 <div>
                   <div className="fw-bold text-white">Menú</div>
-                  <div style={{ fontSize: 12, color: theme.textMuted }}>Accesos por rol</div>
+                  <div style={{ fontSize: 12, color: theme.textMuted }}>
+                    Accesos por rol
+                  </div>
                 </div>
               )}
             </div>
@@ -204,7 +245,10 @@ export default function Sidebar({
           </div>
 
           {!collapsed && (
-            <div className="mt-2" style={{ fontSize: 12, color: theme.textMuted }}>
+            <div
+              className="mt-2"
+              style={{ fontSize: 12, color: theme.textMuted }}
+            >
               {user?.nombre || "Usuario"} · {user?.usuario || ""}
             </div>
           )}
@@ -216,12 +260,15 @@ export default function Sidebar({
           style={{
             maxHeight: "calc(100vh - 200px)",
             overflowY: "auto",
-            overflowX: "hidden", // ✅ evita scrollbar horizontal
-            WebkitOverflowScrolling: "touch", // ✅ scroll suave en touch
+            overflowX: "hidden",
+            WebkitOverflowScrolling: "touch",
           }}
         >
           {rol === "sin rol" ? (
-            <div className="px-3 py-3" style={{ fontSize: 13, color: theme.textMuted }}>
+            <div
+              className="px-3 py-3"
+              style={{ fontSize: 13, color: theme.textMuted }}
+            >
               No se detectó rol en la sesión.
               <div className="mt-2">
                 <Button variant="outline-light" size="sm" onClick={logout}>
@@ -258,7 +305,10 @@ export default function Sidebar({
         </div>
 
         {/* Footer */}
-        <div className="border-top px-3 py-3" style={{ borderColor: theme.border }}>
+        <div
+          className="border-top px-3 py-3"
+          style={{ borderColor: theme.border }}
+        >
           {!collapsed && (
             <div style={{ fontSize: 12, color: theme.textMuted }}>
               Ruta: {location.pathname}
@@ -296,14 +346,16 @@ export default function Sidebar({
         ) : (
           menuVisible.map((sec) => (
             <div key={sec.title} className="mb-3">
-              <div className="text-uppercase text-muted small mb-2">{sec.title}</div>
+              <div className="text-uppercase text-muted small mb-2">
+                {sec.title}
+              </div>
 
               <Nav className="d-grid gap-2">
                 {sec.items.map((l) => (
                   <NavLink
                     key={l.to}
                     to={l.to}
-                    end
+                    end={shouldEnd(l.to)}
                     onClick={closeMobile}
                     className="text-decoration-none"
                     style={({ isActive }) => ({
@@ -331,7 +383,11 @@ export default function Sidebar({
         )}
 
         {/* Logout SOLO en móvil/tablet */}
-        <Button variant="outline-danger" className="w-100 mt-2 d-lg-none" onClick={logout}>
+        <Button
+          variant="outline-danger"
+          className="w-100 mt-2 d-lg-none"
+          onClick={logout}
+        >
           <FaSignOutAlt className="me-2" />
           Cerrar sesión
         </Button>

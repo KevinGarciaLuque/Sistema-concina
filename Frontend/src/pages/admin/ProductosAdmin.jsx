@@ -13,6 +13,17 @@ import {
 
 import ModalConfirm from "../../components/common/ModalConfirm";
 
+/* ========= Helpers ========= */
+
+function toArray(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.categorias)) return payload.categorias;
+  if (Array.isArray(payload?.productos)) return payload.productos;
+  if (Array.isArray(payload?.rows)) return payload.rows;
+  return [];
+}
+
 const money = (n) => {
   const num = Number(n || 0);
   return `L ${num.toFixed(2)}`;
@@ -20,8 +31,8 @@ const money = (n) => {
 
 export default function ProductosAdmin() {
   const [cargando, setCargando] = useState(true);
-  const [categorias, setCategorias] = useState([]);
-  const [productos, setProductos] = useState([]);
+  const [categorias, setCategorias] = useState([]); // ✅ SIEMPRE array
+  const [productos, setProductos] = useState([]); // ✅ SIEMPRE array
 
   // filtros
   const [categoriaId, setCategoriaId] = useState("");
@@ -57,14 +68,21 @@ export default function ProductosAdmin() {
 
   const cargar = async () => {
     setCargando(true);
+    setMsg(null);
     try {
-      const cats = await obtenerCategorias({ todas: true });
-      setCategorias([...cats].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0)));
+      const catsRaw = await obtenerCategorias({ todas: true });
+      const cats = toArray(catsRaw);
+      setCategorias(
+        [...cats].sort((a, b) => (a?.orden ?? 0) - (b?.orden ?? 0)),
+      );
 
-      const prods = await obtenerProductos();
+      const prodsRaw = await obtenerProductos();
+      const prods = toArray(prodsRaw);
       setProductos(prods);
     } catch (e) {
       console.error(e);
+      setCategorias([]);
+      setProductos([]);
       setMsg({
         type: "danger",
         text: "No se pudieron cargar productos/categorías.",
@@ -80,13 +98,16 @@ export default function ProductosAdmin() {
 
   const catMap = useMemo(() => {
     const map = new Map();
-    categorias.forEach((c) => map.set(c.id, c));
+    (Array.isArray(categorias) ? categorias : []).forEach((c) =>
+      map.set(c.id, c),
+    );
     return map;
   }, [categorias]);
 
   const filtrados = useMemo(() => {
     const q = buscar.trim().toLowerCase();
-    return productos
+
+    return (Array.isArray(productos) ? productos : [])
       .filter((p) => {
         if (categoriaId && String(p.categoria_id) !== String(categoriaId))
           return false;
@@ -111,7 +132,7 @@ export default function ProductosAdmin() {
     setImgPreview("");
     setForm({
       id: null,
-      categoria_id: categorias[0]?.id || "",
+      categoria_id: categorias?.[0]?.id || "",
       nombre: "",
       descripcion: "",
       precio: "",
@@ -178,23 +199,21 @@ export default function ProductosAdmin() {
 
       if (!idp) {
         const r = await crearProducto(payload);
-        idp = r.id;
+        idp = r?.id ?? r?.data?.id; // por si viene envuelto
       } else {
         await actualizarProducto(idp, payload);
       }
 
-      if (imgFile) {
-        await subirImagenProducto(idp, imgFile);
-      }
+      if (imgFile) await subirImagenProducto(idp, imgFile);
 
       await cargar();
       setMsg({ type: "success", text: "Producto guardado correctamente." });
       cerrarModal();
-    } catch (e) {
-      console.error(e);
+    } catch (e2) {
+      console.error(e2);
       setMsg({
         type: "danger",
-        text: e?.response?.data?.message || "Error al guardar producto.",
+        text: e2?.response?.data?.message || "Error al guardar producto.",
       });
     } finally {
       setGuardando(false);
@@ -205,8 +224,11 @@ export default function ProductosAdmin() {
     const anterior = Number(p[field]) ? 1 : 0;
     const nuevo = anterior ? 0 : 1;
 
+    // optimista
     setProductos((prev) =>
-      prev.map((x) => (x.id === p.id ? { ...x, [field]: nuevo } : x)),
+      (Array.isArray(prev) ? prev : []).map((x) =>
+        x.id === p.id ? { ...x, [field]: nuevo } : x,
+      ),
     );
 
     try {
@@ -222,18 +244,25 @@ export default function ProductosAdmin() {
     } catch (e) {
       console.error(e);
       setMsg({ type: "danger", text: "No se pudo actualizar el producto." });
+
+      // rollback
       setProductos((prev) =>
-        prev.map((x) => (x.id === p.id ? { ...x, [field]: anterior } : x)),
+        (Array.isArray(prev) ? prev : []).map((x) =>
+          x.id === p.id ? { ...x, [field]: anterior } : x,
+        ),
       );
     }
   };
 
-  const baseURL = import.meta.env.VITE_API_URL;
+  const rawBase = import.meta.env.VITE_API_URL || "http://localhost:4000";
+  const baseURL = String(rawBase).replace(/\/+$/, "");
 
   const getImgSrc = (url) => {
     if (!url) return "";
+    if (url.startsWith("blob:")) return url; // preview local
     if (url.startsWith("http://") || url.startsWith("https://")) return url;
-    return `${baseURL}${url}`;
+    // asegura un solo /
+    return `${baseURL}${url.startsWith("/") ? "" : "/"}${url}`;
   };
 
   return (
@@ -269,7 +298,7 @@ export default function ProductosAdmin() {
                 onChange={(e) => setCategoriaId(e.target.value)}
               >
                 <option value="">Todas</option>
-                {categorias.map((c) => (
+                {(Array.isArray(categorias) ? categorias : []).map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.orden}. {c.nombre}
                   </option>
@@ -490,7 +519,7 @@ export default function ProductosAdmin() {
         </div>
       </div>
 
-      {/* ✅ Modal confirmación (fuera del contenedor con scroll) */}
+      {/* ✅ Modal confirmación */}
       <ModalConfirm
         show={confirm.show}
         title="Eliminar producto"
@@ -592,11 +621,13 @@ export default function ProductosAdmin() {
                           required
                         >
                           <option value="">Selecciona…</option>
-                          {categorias.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.orden}. {c.nombre}
-                            </option>
-                          ))}
+                          {(Array.isArray(categorias) ? categorias : []).map(
+                            (c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.orden}. {c.nombre}
+                              </option>
+                            ),
+                          )}
                         </select>
                       </div>
 

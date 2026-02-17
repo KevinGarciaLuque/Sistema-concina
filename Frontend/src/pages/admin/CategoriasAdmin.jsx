@@ -2,9 +2,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { FaEdit, FaTrash, FaExclamationTriangle } from "react-icons/fa";
 import ModalConfirm from "../../components/common/ModalConfirm";
-import { eliminarCategoria } from "../../api/categorias";
-
-
 
 import {
   obtenerCategorias,
@@ -12,28 +9,29 @@ import {
   actualizarCategoria,
   cambiarActivoCategoria,
   actualizarOrdenCategorias,
+  eliminarCategoria,
 } from "../../api/categorias";
 
 export default function CategoriasAdmin() {
   const [cargando, setCargando] = useState(true);
-  const [categorias, setCategorias] = useState([]);
+  const [categorias, setCategorias] = useState([]); // lista base completa
   const [filtro, setFiltro] = useState("");
   const [soloActivas, setSoloActivas] = useState(false);
 
   const [form, setForm] = useState({ id: null, nombre: "", activo: 1 });
   const [guardando, setGuardando] = useState(false);
   const [msg, setMsg] = useState(null);
-  
+
   const [confirm, setConfirm] = useState({ show: false, id: null, nombre: "" });
   const [eliminando, setEliminando] = useState(false);
 
-
+  const limpiarForm = () => setForm({ id: null, nombre: "", activo: 1 });
 
   const cargar = async () => {
     setCargando(true);
+    setMsg(null);
     try {
-      const data = await obtenerCategorias({ todas: true });
-      // Asegurar orden asc
+      const data = await obtenerCategorias({ todas: true }); // ✅ ahora siempre array
       const ordenadas = [...data].sort(
         (a, b) => (a.orden ?? 0) - (b.orden ?? 0),
       );
@@ -41,6 +39,7 @@ export default function CategoriasAdmin() {
     } catch (e) {
       console.error(e);
       setMsg({ type: "danger", text: "No se pudieron cargar las categorías." });
+      setCategorias([]);
     } finally {
       setCargando(false);
     }
@@ -52,22 +51,34 @@ export default function CategoriasAdmin() {
 
   const filtradas = useMemo(() => {
     const q = filtro.trim().toLowerCase();
-    return categorias.filter((c) => {
-      if (soloActivas && Number(c.activo) !== 1) return false;
-      if (!q) return true;
-      return (c.nombre || "").toLowerCase().includes(q);
-    });
+
+    return [...categorias]
+      .filter((c) => {
+        if (soloActivas && Number(c.activo) !== 1) return false;
+        if (!q) return true;
+        return String(c.nombre || "")
+          .toLowerCase()
+          .includes(q);
+      })
+      .sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
   }, [categorias, filtro, soloActivas]);
 
-  const limpiarForm = () => setForm({ id: null, nombre: "", activo: 1 });
+  const editar = (c) =>
+    setForm({
+      id: c.id,
+      nombre: c.nombre || "",
+      activo: Number(c.activo) ? 1 : 0,
+    });
 
   const onSubmit = async (e) => {
     e.preventDefault();
+
     const nombre = form.nombre.trim();
     if (!nombre) return;
 
     setGuardando(true);
     setMsg(null);
+
     try {
       if (!form.id) {
         await crearCategoria({ nombre, activo: 1 });
@@ -81,28 +92,33 @@ export default function CategoriasAdmin() {
         });
         setMsg({ type: "success", text: "Categoría actualizada." });
       }
+
       limpiarForm();
       await cargar();
-    } catch (e) {
-      console.error(e);
-      const texto = e?.response?.data?.message || "Error al guardar.";
-      setMsg({ type: "danger", text: texto });
+    } catch (e2) {
+      console.error(e2);
+      setMsg({
+        type: "danger",
+        text: e2?.response?.data?.message || "Error al guardar.",
+      });
     } finally {
       setGuardando(false);
     }
   };
 
-  const editar = (c) =>
-    setForm({ id: c.id, nombre: c.nombre || "", activo: Number(c.activo) });
-
   const toggleActivo = async (c) => {
+    const id = c?.id;
+    if (!id) return;
+
+    const nuevo = Number(c.activo) ? 0 : 1;
+
+    // optimista
+    setCategorias((prev) =>
+      prev.map((x) => (x.id === id ? { ...x, activo: nuevo } : x)),
+    );
+
     try {
-      const nuevo = Number(c.activo) ? 0 : 1;
-      // Optimista
-      setCategorias((prev) =>
-        prev.map((x) => (x.id === c.id ? { ...x, activo: nuevo } : x)),
-      );
-      await cambiarActivoCategoria(c.id, nuevo);
+      await cambiarActivoCategoria(id, nuevo);
     } catch (e) {
       console.error(e);
       setMsg({ type: "danger", text: "No se pudo cambiar el estado." });
@@ -112,27 +128,28 @@ export default function CategoriasAdmin() {
 
   const mover = async (id, dir) => {
     // dir: -1 arriba, +1 abajo
-    const idx = categorias.findIndex((c) => c.id === id);
-    if (idx < 0) return;
-
-    const nuevo = [...categorias].sort(
-      (a, b) => (a.orden ?? 0) - (b.orden ?? 0),
-    );
-
-    const i = nuevo.findIndex((c) => c.id === id);
+    // ✅ trabajamos sobre el orden ACTUAL en pantalla (filtradas)
+    const i = filtradas.findIndex((c) => c.id === id);
     const j = i + dir;
-    if (j < 0 || j >= nuevo.length) return;
+    if (i < 0 || j < 0 || j >= filtradas.length) return;
 
-    // swap orden
-    const a = nuevo[i];
-    const b = nuevo[j];
-    const ordenA = a.orden ?? 1;
-    const ordenB = b.orden ?? 1;
+    const a = filtradas[i];
+    const b = filtradas[j];
 
-    nuevo[i] = { ...a, orden: ordenB };
-    nuevo[j] = { ...b, orden: ordenA };
+    // copiamos la lista completa y hacemos swap solo de esos 2 por orden
+    const nuevo = [...categorias].map((x) => ({ ...x }));
 
-    // re-normalizar para que queden 1..n sin saltos
+    const ia = nuevo.findIndex((x) => x.id === a.id);
+    const ib = nuevo.findIndex((x) => x.id === b.id);
+    if (ia < 0 || ib < 0) return;
+
+    const ordenA = nuevo[ia].orden ?? 1;
+    const ordenB = nuevo[ib].orden ?? 1;
+
+    nuevo[ia].orden = ordenB;
+    nuevo[ib].orden = ordenA;
+
+    // normalizar 1..n
     const normal = nuevo
       .sort((x, y) => (x.orden ?? 0) - (y.orden ?? 0))
       .map((x, k) => ({ ...x, orden: k + 1 }));
@@ -170,6 +187,7 @@ export default function CategoriasAdmin() {
             value={filtro}
             onChange={(e) => setFiltro(e.target.value)}
           />
+
           <div className="form-check form-switch">
             <input
               className="form-check-input"
@@ -281,6 +299,7 @@ export default function CategoriasAdmin() {
                       </th>
                     </tr>
                   </thead>
+
                   <tbody>
                     {cargando ? (
                       <tr>
@@ -295,110 +314,77 @@ export default function CategoriasAdmin() {
                         </td>
                       </tr>
                     ) : (
-                      filtradas
-                        .sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
-                        .map((c, index) => (
-                          <tr key={c.id}>
-                            <td>
-                              <div className="d-flex flex-column gap-1">
-                                <button
-                                  className="btn btn-sm btn-outline-secondary"
-                                  onClick={() => mover(c.id, -1)}
-                                  disabled={index === 0}
-                                  title="Subir"
-                                >
-                                  ↑
-                                </button>
-                                <button
-                                  className="btn btn-sm btn-outline-secondary"
-                                  onClick={() => mover(c.id, +1)}
-                                  disabled={index === filtradas.length - 1}
-                                  title="Bajar"
-                                >
-                                  ↓
-                                </button>
-                              </div>
-                            </td>
-                            <td>
-                              <div className="fw-semibold">{c.nombre}</div>
-                              <small className="text-muted">ID: {c.id}</small>
-                            </td>
-                            <td className="text-center">
-                              <div className="form-check form-switch d-inline-flex">
-                                <input
-                                  className="form-check-input"
-                                  type="checkbox"
-                                  checked={Number(c.activo) === 1}
-                                  onChange={() => toggleActivo(c)}
-                                />
-                              </div>
-                            </td>
-                            <td className="text-end">
+                      filtradas.map((c, index) => (
+                        <tr key={c.id}>
+                          <td>
+                            <div className="d-flex flex-column gap-1">
                               <button
-                                className="btn btn-sm btn-outline-primary me-2"
-                                title="Editar"
-                                onClick={() => editar(c)}
+                                className="btn btn-sm btn-outline-secondary"
+                                type="button"
+                                onClick={() => mover(c.id, -1)}
+                                disabled={index === 0}
+                                title="Subir"
                               >
-                                <FaEdit />
+                                ↑
                               </button>
+                              <button
+                                className="btn btn-sm btn-outline-secondary"
+                                type="button"
+                                onClick={() => mover(c.id, +1)}
+                                disabled={index === filtradas.length - 1}
+                                title="Bajar"
+                              >
+                                ↓
+                              </button>
+                            </div>
+                          </td>
 
-                              <button
-                                className="btn btn-sm btn-outline-danger"
-                                title="Eliminar"
-                                onClick={() =>
-                                  setConfirm({
-                                    show: true,
-                                    id: c.id,
-                                    nombre: c.nombre,
-                                  })
-                                }
-                              >
-                                <FaTrash />
-                              </button>
-                            </td>
-                          </tr>
-                        ))
+                          <td>
+                            <div className="fw-semibold">{c.nombre}</div>
+                            <small className="text-muted">ID: {c.id}</small>
+                          </td>
+
+                          <td className="text-center">
+                            <div className="form-check form-switch d-inline-flex">
+                              <input
+                                className="form-check-input"
+                                type="checkbox"
+                                checked={Number(c.activo) === 1}
+                                onChange={() => toggleActivo(c)}
+                              />
+                            </div>
+                          </td>
+
+                          <td className="text-end">
+                            <button
+                              className="btn btn-sm btn-outline-primary me-2"
+                              type="button"
+                              title="Editar"
+                              onClick={() => editar(c)}
+                            >
+                              <FaEdit />
+                            </button>
+
+                            <button
+                              className="btn btn-sm btn-outline-danger"
+                              type="button"
+                              title="Eliminar"
+                              onClick={() =>
+                                setConfirm({
+                                  show: true,
+                                  id: c.id,
+                                  nombre: c.nombre,
+                                })
+                              }
+                            >
+                              <FaTrash />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>
-                <ModalConfirm
-                  show={confirm.show}
-                  title="Eliminar categoría"
-                  message={
-                    <>
-                      ¿Seguro que deseas eliminar <b>{confirm.nombre}</b>?{" "}
-                      <br />
-                      Esta acción no se puede deshacer.
-                    </>
-                  }
-                  confirmText="Sí, eliminar"
-                  cancelText="Cancelar"
-                  confirmVariant="danger"
-                  loading={eliminando}
-                  icon={<FaExclamationTriangle />}
-                  onCancel={() =>
-                    !eliminando &&
-                    setConfirm({ show: false, id: null, nombre: "" })
-                  }
-                  onConfirm={async () => {
-                    try {
-                      setEliminando(true);
-                      await eliminarCategoria(confirm.id);
-                      setMsg({ type: "success", text: "Categoría eliminada." });
-                      setConfirm({ show: false, id: null, nombre: "" });
-                      await cargar();
-                    } catch (e) {
-                      setMsg({
-                        type: "danger",
-                        text:
-                          e?.response?.data?.message ||
-                          "No se pudo eliminar la categoría.",
-                      });
-                    } finally {
-                      setEliminando(false);
-                    }
-                  }}
-                />
               </div>
 
               <div className="mt-2 text-muted small">
@@ -409,6 +395,44 @@ export default function CategoriasAdmin() {
           </div>
         </div>
       </div>
+
+      {/* ✅ Modal confirmación (afuera del scroll) */}
+      <ModalConfirm
+        show={confirm.show}
+        title="Eliminar categoría"
+        message={
+          <>
+            ¿Seguro que deseas eliminar <b>{confirm.nombre}</b>? <br />
+            Esta acción no se puede deshacer.
+          </>
+        }
+        confirmText="Sí, eliminar"
+        cancelText="Cancelar"
+        confirmVariant="danger"
+        loading={eliminando}
+        icon={<FaExclamationTriangle />}
+        onCancel={() =>
+          !eliminando && setConfirm({ show: false, id: null, nombre: "" })
+        }
+        onConfirm={async () => {
+          try {
+            setEliminando(true);
+            await eliminarCategoria(confirm.id);
+            setMsg({ type: "success", text: "Categoría eliminada." });
+            setConfirm({ show: false, id: null, nombre: "" });
+            await cargar();
+          } catch (e) {
+            setMsg({
+              type: "danger",
+              text:
+                e?.response?.data?.message ||
+                "No se pudo eliminar la categoría.",
+            });
+          } finally {
+            setEliminando(false);
+          }
+        }}
+      />
     </div>
   );
 }

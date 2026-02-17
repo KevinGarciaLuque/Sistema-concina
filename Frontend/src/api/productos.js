@@ -1,12 +1,22 @@
 // src/api/productos.js
 import api from "./axios";
 
+/* ========= Helpers ========= */
+function toArray(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.productos)) return payload.productos;
+  if (Array.isArray(payload?.rows)) return payload.rows;
+  return [];
+}
+
 export const obtenerProductos = async ({
   activo,
   en_menu,
   categoria_id,
 } = {}) => {
   const params = new URLSearchParams();
+
   if (activo !== undefined && activo !== null)
     params.append("activo", String(activo));
   if (en_menu !== undefined && en_menu !== null)
@@ -21,12 +31,14 @@ export const obtenerProductos = async ({
 
   const qs = params.toString();
   const { data } = await api.get(`/productos${qs ? `?${qs}` : ""}`);
-  return data;
+
+  // ✅ siempre array
+  return toArray(data);
 };
 
 export const crearProducto = async (payload) => {
   const { data } = await api.post("/productos", payload);
-  return data; // { id }
+  return data; // { id } o similar
 };
 
 export const actualizarProducto = async (id, payload) => {
@@ -41,9 +53,9 @@ export const subirImagenProducto = async (id, file) => {
   const { data } = await api.post(`/productos/${id}/imagen`, formData, {
     headers: { "Content-Type": "multipart/form-data" },
   });
+
   return data; // { ok, imagen_url }
 };
-
 
 export const eliminarProducto = async (id) => {
   const { data } = await api.delete(`/productos/${id}`);

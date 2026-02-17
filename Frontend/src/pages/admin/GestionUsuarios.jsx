@@ -1,3 +1,4 @@
+//Frontend/src/pages/admin/GastionUsuarios.jsx
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -22,6 +23,7 @@ import {
   FaToggleOff,
   FaEye,
   FaEyeSlash,
+  FaExclamationTriangle,
 } from "react-icons/fa";
 import api from "../../api/axios";
 
@@ -32,23 +34,31 @@ function toArray(payload) {
   if (Array.isArray(payload?.data)) return payload.data;
   if (Array.isArray(payload?.usuarios)) return payload.usuarios;
   if (Array.isArray(payload?.rows)) return payload.rows;
+  if (Array.isArray(payload?.roles)) return payload.roles;
   return [];
 }
 
-function pickUser(u) {
-  // Normaliza nombres por si tu backend usa otra convención
+function pickRole(r) {
   return {
-    id: u?.id ?? u?.usuario_id ?? u?.ID,
+    id: Number(r?.id ?? r?.rol_id ?? 0) || 0,
+    nombre: String(r?.nombre ?? r?.rol ?? r?.name ?? "").trim(),
+  };
+}
+
+function pickUser(u) {
+  return {
+    id: Number(u?.id ?? u?.usuario_id ?? u?.ID ?? 0) || 0,
+    rol_id: Number(u?.rol_id ?? u?.role_id ?? 0) || 0,
     nombre: u?.nombre ?? u?.name ?? "",
     usuario: u?.usuario ?? u?.username ?? "",
-    rol: u?.rol ?? u?.role ?? "",
+    rol: u?.rol ?? u?.role ?? "", // nombre del rol (si tu backend lo manda)
     activo: Number(u?.activo ?? u?.is_active ?? 1) === 1,
     creado_en: u?.creado_en ?? u?.created_at ?? null,
   };
 }
 
-function roleBadgeVariant(rol) {
-  const r = String(rol || "").toLowerCase();
+function roleBadgeVariant(rolNombre) {
+  const r = String(rolNombre || "").toLowerCase();
   if (r === "admin") return "danger";
   if (r === "supervisor") return "primary";
   if (r === "cajero") return "success";
@@ -56,27 +66,30 @@ function roleBadgeVariant(rol) {
   return "secondary";
 }
 
-/* ========= API (ajusta rutas si tu backend difiere) ========= */
+/* ========= API ========= */
 
 async function apiObtenerUsuarios() {
-  const { data } = await api.get("/api/usuarios");
+  const { data } = await api.get("/usuarios");
   return toArray(data).map(pickUser);
 }
 
+async function apiObtenerRoles() {
+  const { data } = await api.get("/roles");
+  return toArray(data).map(pickRole);
+}
+
 async function apiCrearUsuario(body) {
-  const { data } = await api.post("/api/usuarios", body);
+  const { data } = await api.post("/usuarios", body);
   return data;
 }
 
 async function apiActualizarUsuario(id, body) {
-  const { data } = await api.put(`/api/usuarios/${id}`, body);
+  const { data } = await api.put(`/usuarios/${id}`, body);
   return data;
 }
 
 async function apiToggleUsuario(id, activo) {
-  // Ruta recomendada: PATCH /api/usuarios/:id/activo  {activo: 1|0}
-  // Si tu backend usa PUT, cambia aquí.
-  const { data } = await api.patch(`/api/usuarios/${id}/activo`, { activo });
+  const { data } = await api.patch(`/usuarios/${id}/activo`, { activo });
   return data;
 }
 
@@ -87,8 +100,10 @@ export default function GestionUsuarios() {
   const [msg, setMsg] = useState({ type: "", text: "" });
 
   const [usuarios, setUsuarios] = useState([]);
+  const [roles, setRoles] = useState([]);
+
   const [q, setQ] = useState("");
-  const [fRol, setFRol] = useState("todos");
+  const [fRol, setFRol] = useState("todos"); // ahora filtra por nombre de rol
 
   const [showForm, setShowForm] = useState(false);
   const [edit, setEdit] = useState(null);
@@ -97,15 +112,28 @@ export default function GestionUsuarios() {
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
 
-  const ROLES = ["admin", "supervisor", "cajero", "cocina"];
+  // rol_id por defecto: intenta encontrar "cajero" si existe, si no el primero
+  const defaultRolId = useMemo(() => {
+    const cajero = roles.find(
+      (r) => String(r.nombre).toLowerCase() === "cajero",
+    );
+    return cajero?.id || roles?.[0]?.id || 0;
+  }, [roles]);
 
   const [form, setForm] = useState({
     nombre: "",
     usuario: "",
     password: "",
-    rol: "cajero",
+    rol_id: 0,
     activo: 1,
   });
+
+  // map rol_id => nombre
+  const rolNombreById = useMemo(() => {
+    const m = new Map();
+    roles.forEach((r) => m.set(Number(r.id), r.nombre));
+    return m;
+  }, [roles]);
 
   const stats = useMemo(() => {
     const total = usuarios.length;
@@ -116,25 +144,41 @@ export default function GestionUsuarios() {
 
   const filtrados = useMemo(() => {
     const text = q.trim().toLowerCase();
+
     return usuarios.filter((u) => {
-      const matchRol = fRol === "todos" ? true : String(u.rol).toLowerCase() === fRol;
-      const base = `${u.id} ${u.nombre} ${u.usuario} ${u.rol}`.toLowerCase();
+      const rolNombre = (
+        u.rol ||
+        rolNombreById.get(Number(u.rol_id)) ||
+        ""
+      ).toLowerCase();
+      const matchRol =
+        fRol === "todos" ? true : rolNombre === String(fRol).toLowerCase();
+
+      const base =
+        `${u.id} ${u.nombre} ${u.usuario} ${rolNombre}`.toLowerCase();
       const matchText = !text ? true : base.includes(text);
+
       return matchRol && matchText;
     });
-  }, [usuarios, q, fRol]);
+  }, [usuarios, q, fRol, rolNombreById]);
 
   const cargar = async () => {
     setLoading(true);
     setMsg({ type: "", text: "" });
+
     try {
-      const data = await apiObtenerUsuarios();
-      setUsuarios(Array.isArray(data) ? data : []);
+      const [users, rs] = await Promise.all([
+        apiObtenerUsuarios(),
+        apiObtenerRoles(),
+      ]);
+      setUsuarios(Array.isArray(users) ? users : []);
+      setRoles(Array.isArray(rs) ? rs : []);
     } catch (e) {
       setUsuarios([]);
+      setRoles([]);
       setMsg({
         type: "danger",
-        text: e?.response?.data?.message || "No se pudieron cargar los usuarios.",
+        text: e?.response?.data?.message || "No se pudieron cargar los datos.",
       });
     } finally {
       setLoading(false);
@@ -145,10 +189,25 @@ export default function GestionUsuarios() {
     cargar();
   }, []);
 
+  // Cuando carguen roles por primera vez, setea rol_id por defecto si está en 0
+  useEffect(() => {
+    if (!showForm) return;
+    if (Number(form.rol_id) === 0 && defaultRolId) {
+      setForm((f) => ({ ...f, rol_id: defaultRolId }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roles, defaultRolId, showForm]);
+
   const abrirCrear = () => {
     setEdit(null);
     setVerPass(false);
-    setForm({ nombre: "", usuario: "", password: "", rol: "cajero", activo: 1 });
+    setForm({
+      nombre: "",
+      usuario: "",
+      password: "",
+      rol_id: defaultRolId || 0,
+      activo: 1,
+    });
     setShowForm(true);
   };
 
@@ -158,25 +217,32 @@ export default function GestionUsuarios() {
     setForm({
       nombre: u.nombre || "",
       usuario: u.usuario || "",
-      password: "", // en edición, password opcional (solo si lo quieres cambiar)
-      rol: u.rol || "cajero",
+      password: "", // opcional
+      rol_id: Number(u.rol_id) || defaultRolId || 0,
       activo: u.activo ? 1 : 0,
     });
     setShowForm(true);
   };
 
   const validar = () => {
-    const nombre = form.nombre.trim();
-    const usuarioTxt = form.usuario.trim();
+    const nombre = String(form.nombre || "").trim();
+    const usuarioTxt = String(form.usuario || "").trim();
+    const rolId = Number(form.rol_id);
 
     if (!nombre) return "El nombre es obligatorio.";
     if (!usuarioTxt) return "El usuario es obligatorio.";
-    if (!ROLES.includes(String(form.rol).toLowerCase())) return "Rol inválido.";
+    if (!rolId || rolId <= 0) return "rol_id inválido.";
 
-    // en crear => password requerido
+    // crear => password requerido
     if (!edit?.id && !String(form.password || "").trim()) {
       return "La contraseña es obligatoria al crear.";
     }
+
+    // opcional: mínimo de contraseña
+    const pass = String(form.password || "").trim();
+    if (pass && pass.length < 6)
+      return "La contraseña debe tener mínimo 6 caracteres.";
+
     return "";
   };
 
@@ -191,15 +257,15 @@ export default function GestionUsuarios() {
     }
 
     setSaving(true);
+
     try {
       const payload = {
-        nombre: form.nombre.trim(),
-        usuario: form.usuario.trim(),
-        rol: String(form.rol).toLowerCase(),
+        nombre: String(form.nombre || "").trim(),
+        usuario: String(form.usuario || "").trim(),
+        rol_id: Number(form.rol_id),
         activo: Number(form.activo) ? 1 : 0,
       };
 
-      // si escribió password en edición, lo enviamos (si tu backend lo soporta)
       const pass = String(form.password || "").trim();
       if (pass) payload.password = pass;
 
@@ -227,6 +293,7 @@ export default function GestionUsuarios() {
     if (!u?.id) return;
     setBusyId(u.id);
     setMsg({ type: "", text: "" });
+
     try {
       const next = u.activo ? 0 : 1;
       await apiToggleUsuario(u.id, next);
@@ -241,6 +308,16 @@ export default function GestionUsuarios() {
     } finally {
       setBusyId(null);
     }
+  };
+
+  const rolesOptions = useMemo(() => {
+    // solo roles válidos
+    return roles.filter((r) => r?.id && r?.nombre);
+  }, [roles]);
+
+  const roleName = (u) => {
+    const name = u?.rol || rolNombreById.get(Number(u?.rol_id)) || "";
+    return name || "—";
   };
 
   return (
@@ -260,7 +337,8 @@ export default function GestionUsuarios() {
                 Gestión de Usuarios
               </div>
               <div className="text-muted" style={{ fontSize: 12 }}>
-                Control de accesos por rol · Activación/Desactivación · Administración
+                Control de accesos por rol · Activación/Desactivación ·
+                Administración
               </div>
             </div>
           </div>
@@ -276,7 +354,7 @@ export default function GestionUsuarios() {
             Recargar
           </Button>
 
-          <Button variant="primary" onClick={abrirCrear}>
+          <Button variant="primary" onClick={abrirCrear} disabled={loading}>
             <FaUserPlus className="me-2" />
             Nuevo
           </Button>
@@ -289,30 +367,44 @@ export default function GestionUsuarios() {
           <Card className="border-0 shadow-sm rounded-4">
             <Card.Body className="d-flex justify-content-between align-items-center">
               <div>
-                <div className="text-muted" style={{ fontSize: 12 }}>Total</div>
-                <div className="fw-bold" style={{ fontSize: 22 }}>{stats.total}</div>
+                <div className="text-muted" style={{ fontSize: 12 }}>
+                  Total
+                </div>
+                <div className="fw-bold" style={{ fontSize: 22 }}>
+                  {stats.total}
+                </div>
               </div>
               <Badge bg="secondary">Usuarios</Badge>
             </Card.Body>
           </Card>
         </Col>
+
         <Col md={4}>
           <Card className="border-0 shadow-sm rounded-4">
             <Card.Body className="d-flex justify-content-between align-items-center">
               <div>
-                <div className="text-muted" style={{ fontSize: 12 }}>Activos</div>
-                <div className="fw-bold" style={{ fontSize: 22 }}>{stats.activos}</div>
+                <div className="text-muted" style={{ fontSize: 12 }}>
+                  Activos
+                </div>
+                <div className="fw-bold" style={{ fontSize: 22 }}>
+                  {stats.activos}
+                </div>
               </div>
               <Badge bg="success">ON</Badge>
             </Card.Body>
           </Card>
         </Col>
+
         <Col md={4}>
           <Card className="border-0 shadow-sm rounded-4">
             <Card.Body className="d-flex justify-content-between align-items-center">
               <div>
-                <div className="text-muted" style={{ fontSize: 12 }}>Inactivos</div>
-                <div className="fw-bold" style={{ fontSize: 22 }}>{stats.inactivos}</div>
+                <div className="text-muted" style={{ fontSize: 12 }}>
+                  Inactivos
+                </div>
+                <div className="fw-bold" style={{ fontSize: 22 }}>
+                  {stats.inactivos}
+                </div>
               </div>
               <Badge bg="secondary">OFF</Badge>
             </Card.Body>
@@ -323,6 +415,15 @@ export default function GestionUsuarios() {
       {/* Message */}
       {msg.text ? <Alert variant={msg.type}>{msg.text}</Alert> : null}
 
+      {/* Aviso si roles no cargan */}
+      {!loading && rolesOptions.length === 0 ? (
+        <Alert variant="warning" className="d-flex align-items-center gap-2">
+          <FaExclamationTriangle />
+          No se pudieron cargar los roles. Verifica que exista la ruta{" "}
+          <b>GET /api/roles</b>.
+        </Alert>
+      ) : null}
+
       {/* Filters + Table */}
       <Card className="border-0 shadow-sm rounded-4">
         <Card.Body>
@@ -330,7 +431,9 @@ export default function GestionUsuarios() {
             <Col lg={6}>
               <Form.Label className="fw-semibold">Buscar</Form.Label>
               <InputGroup>
-                <InputGroup.Text><FaSearch /></InputGroup.Text>
+                <InputGroup.Text>
+                  <FaSearch />
+                </InputGroup.Text>
                 <Form.Control
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
@@ -341,10 +444,15 @@ export default function GestionUsuarios() {
 
             <Col lg={3}>
               <Form.Label className="fw-semibold">Rol</Form.Label>
-              <Form.Select value={fRol} onChange={(e) => setFRol(e.target.value)}>
+              <Form.Select
+                value={fRol}
+                onChange={(e) => setFRol(e.target.value)}
+              >
                 <option value="todos">Todos</option>
-                {ROLES.map((r) => (
-                  <option key={r} value={r}>{r}</option>
+                {rolesOptions.map((r) => (
+                  <option key={r.id} value={String(r.nombre).toLowerCase()}>
+                    {r.nombre}
+                  </option>
                 ))}
               </Form.Select>
             </Col>
@@ -358,14 +466,23 @@ export default function GestionUsuarios() {
 
           <div style={{ maxHeight: "65vh", overflow: "auto" }}>
             <Table responsive hover className="align-middle mb-0">
-              <thead style={{ position: "sticky", top: 0, background: "white", zIndex: 1 }}>
+              <thead
+                style={{
+                  position: "sticky",
+                  top: 0,
+                  background: "white",
+                  zIndex: 1,
+                }}
+              >
                 <tr>
                   <th style={{ minWidth: 70 }}>ID</th>
                   <th style={{ minWidth: 240 }}>Nombre</th>
                   <th style={{ minWidth: 220 }}>Usuario</th>
                   <th style={{ minWidth: 140 }}>Rol</th>
                   <th style={{ minWidth: 120 }}>Estado</th>
-                  <th style={{ minWidth: 220 }} className="text-end">Acciones</th>
+                  <th style={{ minWidth: 220 }} className="text-end">
+                    Acciones
+                  </th>
                 </tr>
               </thead>
 
@@ -386,13 +503,15 @@ export default function GestionUsuarios() {
                 ) : (
                   filtrados.map((u) => {
                     const isBusy = busyId === u.id;
+                    const rolNom = roleName(u);
+
                     return (
                       <tr key={u.id}>
                         <td className="text-muted">{u.id}</td>
                         <td className="fw-semibold">{u.nombre}</td>
                         <td>{u.usuario}</td>
                         <td>
-                          <Badge bg={roleBadgeVariant(u.rol)}>{u.rol || "—"}</Badge>
+                          <Badge bg={roleBadgeVariant(rolNom)}>{rolNom}</Badge>
                         </td>
                         <td>
                           <Badge bg={u.activo ? "success" : "secondary"}>
@@ -403,7 +522,11 @@ export default function GestionUsuarios() {
                           <div className="d-inline-flex gap-2">
                             <Button
                               size="sm"
-                              variant={u.activo ? "outline-success" : "outline-secondary"}
+                              variant={
+                                u.activo
+                                  ? "outline-success"
+                                  : "outline-secondary"
+                              }
                               onClick={() => toggleActivo(u)}
                               disabled={isBusy}
                               className="d-inline-flex align-items-center gap-2"
@@ -456,7 +579,9 @@ export default function GestionUsuarios() {
                   <Form.Label className="fw-semibold">Nombre</Form.Label>
                   <Form.Control
                     value={form.nombre}
-                    onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, nombre: e.target.value }))
+                    }
                     placeholder="Ej: Kevin García"
                     autoFocus
                   />
@@ -468,7 +593,9 @@ export default function GestionUsuarios() {
                   <Form.Label className="fw-semibold">Usuario</Form.Label>
                   <Form.Control
                     value={form.usuario}
-                    onChange={(e) => setForm((f) => ({ ...f, usuario: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, usuario: e.target.value }))
+                    }
                     placeholder="Ej: kevin"
                     autoComplete="off"
                   />
@@ -478,15 +605,24 @@ export default function GestionUsuarios() {
               <Col md={12}>
                 <Form.Group>
                   <Form.Label className="fw-semibold">
-                    Contraseña {edit?.id ? <span className="text-muted">(opcional)</span> : null}
+                    Contraseña{" "}
+                    {edit?.id ? (
+                      <span className="text-muted">(opcional)</span>
+                    ) : null}
                   </Form.Label>
 
                   <InputGroup>
                     <Form.Control
                       type={verPass ? "text" : "password"}
                       value={form.password}
-                      onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                      placeholder={edit?.id ? "Dejar vacío para no cambiar" : "Ingresar contraseña"}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, password: e.target.value }))
+                      }
+                      placeholder={
+                        edit?.id
+                          ? "Dejar vacío para no cambiar"
+                          : "Ingresar contraseña"
+                      }
                       autoComplete="new-password"
                     />
                     <Button
@@ -500,7 +636,8 @@ export default function GestionUsuarios() {
                   </InputGroup>
 
                   <div className="text-muted mt-1" style={{ fontSize: 12 }}>
-                    Tip: usa mínimo 6 caracteres para evitar contraseñas débiles.
+                    Tip: usa mínimo 6 caracteres para evitar contraseñas
+                    débiles.
                   </div>
                 </Form.Group>
               </Col>
@@ -509,12 +646,21 @@ export default function GestionUsuarios() {
                 <Form.Group>
                   <Form.Label className="fw-semibold">Rol</Form.Label>
                   <Form.Select
-                    value={form.rol}
-                    onChange={(e) => setForm((f) => ({ ...f, rol: e.target.value }))}
+                    value={form.rol_id}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, rol_id: Number(e.target.value) }))
+                    }
+                    disabled={rolesOptions.length === 0}
                   >
-                    {ROLES.map((r) => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
+                    {rolesOptions.length === 0 ? (
+                      <option value={0}>Sin roles (revisa /api/roles)</option>
+                    ) : (
+                      rolesOptions.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.nombre}
+                        </option>
+                      ))
+                    )}
                   </Form.Select>
                 </Form.Group>
               </Col>
@@ -525,18 +671,30 @@ export default function GestionUsuarios() {
                   id="user-activo"
                   label="Activo"
                   checked={Number(form.activo) === 1}
-                  onChange={(e) => setForm((f) => ({ ...f, activo: e.target.checked ? 1 : 0 }))}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, activo: e.target.checked ? 1 : 0 }))
+                  }
                 />
               </Col>
             </Row>
           </Modal.Body>
 
           <Modal.Footer>
-            <Button variant="outline-secondary" onClick={() => setShowForm(false)} disabled={saving}>
+            <Button
+              variant="outline-secondary"
+              onClick={() => setShowForm(false)}
+              disabled={saving}
+            >
               Cancelar
             </Button>
-            <Button type="submit" variant="primary" disabled={saving}>
-              {saving ? <Spinner size="sm" animation="border" className="me-2" /> : null}
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={saving || rolesOptions.length === 0}
+            >
+              {saving ? (
+                <Spinner size="sm" animation="border" className="me-2" />
+              ) : null}
               Guardar
             </Button>
           </Modal.Footer>

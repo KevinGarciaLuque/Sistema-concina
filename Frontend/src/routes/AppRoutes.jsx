@@ -1,6 +1,8 @@
+// src/routes/AppRoutes.jsx
 import { Routes, Route, Navigate } from "react-router-dom";
 
 import Login from "../pages/Login";
+
 
 // Páginas
 import Dashboard from "../pages/Dashboard";
@@ -15,6 +17,7 @@ import Bitacora from "../pages/Bitacora";
 import Admin from "../pages/admin/Admin";
 import ProductoModificadoresAdmin from "../pages/admin/ProductoModificadoresAdmin";
 import GestionUsuarios from "../pages/admin/GestionUsuarios";
+import Reportes from "../pages/admin/Reportes";
 
 // Auth + Layout
 import ProtectedRoute from "../components/ProtectedRoute";
@@ -26,7 +29,7 @@ export default function AppRoutes() {
       {/* Público */}
       <Route path="/login" element={<Login />} />
 
-      {/* Privado con Layout (solo autenticación) */}
+      {/* Privado con Layout */}
       <Route
         element={
           <ProtectedRoute>
@@ -84,6 +87,16 @@ export default function AppRoutes() {
           element={
             <ProtectedRoute permisos={["FACTURAS.VER", "FACTURAS.CREAR"]}>
               <Facturas />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ✅ NUEVO: Reportes */}
+        <Route
+          path="/reportes"
+          element={
+            <ProtectedRoute permiso="REPORTES.VER">
+              <Reportes />
             </ProtectedRoute>
           }
         />

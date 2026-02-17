@@ -1,3 +1,4 @@
+//src/pages/admin/Modificadores.jsx
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,

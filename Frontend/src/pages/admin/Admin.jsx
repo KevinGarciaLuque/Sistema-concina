@@ -1,3 +1,4 @@
+//Frontend/pages/admin/admin.jsx
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
