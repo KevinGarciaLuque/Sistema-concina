@@ -70,10 +70,10 @@ function safeArray(x) {
  */
 async function fetchKdsOrders() {
   const candidates = [
-    "/api/cocina/kds",
-    "/api/ordenes/kds",
-    "/api/cocina",
-    "/api/ordenes?modo=kds",
+    "/cocina/kds",
+    "/ordenes/kds",
+    "/cocina",
+    "/ordenes?modo=kds",
   ];
 
   let lastErr = null;
@@ -97,9 +97,9 @@ async function fetchKdsOrders() {
  */
 async function patchEstadoOrden(ordenId, estado) {
   const candidates = [
-    { url: `/api/ordenes/${ordenId}/estado`, body: { estado } },
-    { url: `/api/cocina/ordenes/${ordenId}/estado`, body: { estado } },
-    { url: `/api/ordenes/${ordenId}`, body: { estado } },
+    { url: `/ordenes/${ordenId}/estado`, body: { estado } },
+    { url: `/cocina/ordenes/${ordenId}/estado`, body: { estado } },
+    { url: `/ordenes/${ordenId}`, body: { estado } },
   ];
 
   let lastErr = null;

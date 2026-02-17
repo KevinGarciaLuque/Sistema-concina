@@ -87,7 +87,7 @@ export default function Pos() {
   const loadCategorias = async () => {
     setLoadingCat(true);
     try {
-      const { data } = await api.get("/api/categorias", { params: { activo: 1 } });
+      const { data } = await api.get("/categorias", { params: { activo: 1 } });
       setCategorias(Array.isArray(data?.data) ? data.data : []);
     } catch (e) {
       setCategorias([]);
@@ -104,7 +104,7 @@ export default function Pos() {
       if (q) params.q = q;
       if (categoriaId) params.categoria_id = categoriaId;
 
-      const { data } = await api.get("/api/productos", { params });
+      const { data } = await api.get("/productos", { params });
       setProductos(Array.isArray(data?.data) ? data.data : []);
     } catch (e) {
       setProductos([]);
@@ -160,7 +160,7 @@ export default function Pos() {
     setEditItemId(modo === "edit" ? itemExistente?.id : null);
 
     try {
-      const { data } = await api.get(`/api/modificadores/por-producto/${producto.id}`);
+      const { data } = await api.get(`/modificadores/por-producto/${producto.id}`);
       const mods = Array.isArray(data?.data) ? data.data : [];
 
       let preset = {};
@@ -242,7 +242,7 @@ export default function Pos() {
 
     setBusyCrear(true);
     try {
-      const { data } = await api.post("/api/ordenes", payload);
+      const { data } = await api.post("/ordenes", payload);
 
       setOrdenCreada({ id: data?.id, codigo: data?.codigo });
 

@@ -6,6 +6,41 @@ import { socket } from "../socket";
 import api from "../api";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 
+import bgLogin from "../assets/megataco21.png";
+
+/* =========================
+   CONFIG (AJUSTABLE)
+========================= */
+const UI = {
+  cardWidth: 420,
+
+  // offsets (desktop)
+  offsetTop: 0,
+  offsetBottom: 0,
+  offsetLeft: 40,
+  offsetRight: 0,
+
+  centerOnMobile: true,
+  cardBg: "rgba(255,255,255,.94)",
+  radius: 18,
+};
+
+const BG = {
+  // Desktop
+  desktopFit: "cover", // cover = llena (puede recortar)
+  desktopPosition: "center",
+
+  // Mobile
+  mobileFit: "contain", // contain = muestra completa (puede dejar “márgenes”)
+  mobilePosition: "top center",
+
+  // Overlay sin blur
+  overlayOpacity: 0.12,
+
+  // color detrás cuando usamos contain (márgenes)
+  backdropColor: "#0b1020",
+};
+
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -13,11 +48,8 @@ export default function Login() {
   const [usuario, setUsuario] = useState("");
   const [password, setPassword] = useState("");
   const [recordarme, setRecordarme] = useState(true);
-
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
-
-  // 👁️ mostrar/ocultar contraseña
   const [showPass, setShowPass] = useState(false);
 
   // Recuperación
@@ -32,20 +64,16 @@ export default function Login() {
   );
 
   const syncSessionStorage = (user) => {
-    // ✅ Estándar: si "Recordarme" = false -> todo a sessionStorage
-    // si = true -> todo a localStorage
     const tokenLS = localStorage.getItem("token");
     const userLS = localStorage.getItem("user");
     const tokenSS = sessionStorage.getItem("token");
     const userSS = sessionStorage.getItem("user");
 
-    // Limpieza cruzada (evita inconsistencias)
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     sessionStorage.removeItem("token");
     sessionStorage.removeItem("user");
 
-    // Si AuthContext ya guardó algo, lo reusamos; si no, guardamos mínimo
     const token = tokenLS || tokenSS || null;
 
     const payloadUser = user
@@ -53,9 +81,9 @@ export default function Login() {
           id: user.id,
           nombre: user.nombre,
           usuario: user.usuario,
-          rol: user.rol, // 👈 CLAVE para que no salga "sin rol"
+          rol: user.rol,
         })
-      : (userLS || userSS || null);
+      : userLS || userSS || null;
 
     if (recordarme) {
       if (token) localStorage.setItem("token", token);
@@ -73,20 +101,16 @@ export default function Login() {
 
     try {
       const user = await login(usuario.trim(), password);
-
-      // ✅ Asegurar que user/token queden en el storage correcto y con rol
       syncSessionStorage(user);
 
-      // ✅ socket join por rol
       try {
         if (!socket.connected) socket.connect();
         socket.emit("join", { rol: user.rol });
       } catch {}
 
-      // ✅ redirección por rol
       if (user.rol === "cocina") navigate("/cocina");
       else if (user.rol === "cajero") navigate("/pos");
-      else navigate("/dashboard"); // admin / supervisor
+      else navigate("/dashboard");
     } catch (err) {
       setMsg(
         err?.response?.data?.msg ||
@@ -113,9 +137,7 @@ export default function Login() {
       "Si el correo está registrado, recibirás instrucciones para restablecer tu contraseña.";
 
     try {
-      // Cuando tengas endpoint real:
       // await api.post("/auth/recuperar", { email: resetEmail.trim() });
-
       await new Promise((r) => setTimeout(r, 700));
       setResetMsg(mensajeOK);
     } catch (err) {
@@ -126,127 +148,174 @@ export default function Login() {
   };
 
   return (
-    <div className="min-vh-100 d-flex align-items-center justify-content-center bg-light px-3">
-      <div
-        className="card border-0 shadow-sm"
-        style={{ width: 420, borderRadius: 18 }}
-      >
-        <div className="card-body p-4 p-md-5">
-          {/* Header */}
-          <div className="mb-4">
-            <div className="d-flex align-items-center justify-content-between">
-              <h3 className="mb-0 fw-bold">Sistema Cocina</h3>
-              <span className="badge text-bg-dark rounded-pill px-3 py-2">
-                Acceso
-              </span>
-            </div>
-            <div className="text-muted mt-2" style={{ fontSize: 14 }}>
-              Inicia sesión para continuar
-            </div>
-          </div>
+    <div className="min-vh-100 position-relative" style={{ background: BG.backdropColor }}>
+      {/* ===== Fondo responsive SIN blur ===== */}
+      <div className="position-absolute top-0 start-0 w-100 h-100" style={{ zIndex: 0 }}>
+        {/* Desktop */}
+        <div
+          className="d-none d-md-block w-100 h-100"
+          style={{
+            backgroundImage: `url(${bgLogin})`,
+            backgroundSize: BG.desktopFit,
+            backgroundPosition: BG.desktopPosition,
+            backgroundRepeat: "no-repeat",
+          }}
+        />
 
-          {/* Error */}
-          {msg && (
-            <div className="alert alert-danger py-2 mb-3" role="alert">
-              {msg}
-            </div>
-          )}
+        {/* Mobile */}
+        <div
+          className="d-block d-md-none w-100 h-100"
+          style={{
+            backgroundImage: `url(${bgLogin})`,
+            backgroundSize: BG.mobileFit,
+            backgroundPosition: BG.mobilePosition,
+            backgroundRepeat: "no-repeat",
+          }}
+        />
 
-          {/* Form */}
-          <Form onSubmit={handleSubmit} className="d-grid gap-3">
-            <Form.Group>
-              <Form.Label className="fw-semibold">Usuario</Form.Label>
-              <Form.Control
-                value={usuario}
-                onChange={(e) => setUsuario(e.target.value)}
-                placeholder="Ej: admin"
-                autoFocus
-                autoComplete="username"
-                style={{ borderRadius: 12, padding: "12px 14px" }}
-              />
-            </Form.Group>
+        {/* Overlay sin blur */}
+        <div
+          className="position-absolute top-0 start-0 w-100 h-100"
+          style={{ background: `rgba(0,0,0,${BG.overlayOpacity})` }}
+        />
+      </div>
 
-            <Form.Group>
-              <Form.Label className="fw-semibold">Contraseña</Form.Label>
-
-              {/* 👁️ InputGroup con ojito */}
-              <InputGroup>
-                <Form.Control
-                  type={showPass ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  autoComplete="current-password"
-                  style={{
-                    borderTopLeftRadius: 12,
-                    borderBottomLeftRadius: 12,
-                    padding: "12px 14px",
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="outline-secondary"
-                  onClick={() => setShowPass((v) => !v)}
-                  aria-label={showPass ? "Ocultar contraseña" : "Mostrar contraseña"}
-                  style={{
-                    borderTopRightRadius: 12,
-                    borderBottomRightRadius: 12,
-                    padding: "12px 14px",
-                  }}
+      {/* ===== Contenido ===== */}
+      <div className="position-relative" style={{ zIndex: 1 }}>
+        <div className="container-fluid">
+          <div className="row min-vh-100 align-items-center">
+            <div className="col-12 col-lg-6">
+              <div className="d-flex min-vh-100 align-items-center">
+                <div
+                  className={`w-100 d-flex ${
+                    UI.centerOnMobile ? "justify-content-center" : "justify-content-start"
+                  } justify-content-lg-start`}
+                  style={{ paddingLeft: 40, paddingRight: 16, paddingTop:40 }}
                 >
-                  {showPass ? <FaEyeSlash /> : <FaEye />}
-                </Button>
-              </InputGroup>
+                  <div
+                    className="card border-0 shadow-lg"
+                    style={{
+                      width: UI.cardWidth,
+                      borderRadius: UI.radius,
+                      background: UI.cardBg,
+                      marginTop: UI.offsetTop,
+                      marginBottom: UI.offsetBottom,
+                      marginLeft: UI.offsetLeft,
+                      marginRight: UI.offsetRight,
+                    }}
+                  >
+                    <div className="card-body p-4 p-md-5">
+                      <div className="mb-4">
+                        <div className="d-flex align-items-center justify-content-between">
+                          <h3 className="mb-0 fw-bold">Sistema Cocina</h3>
+                          <span className="badge text-bg-dark rounded-pill px-3 py-2">
+                            Acceso
+                          </span>
+                        </div>
+                        <div className="text-muted mt-2" style={{ fontSize: 14 }}>
+                          Inicia sesión para continuar
+                        </div>
+                      </div>
 
-              <div className="text-muted mt-1" style={{ fontSize: 12 }}>
-                {showPass ? "Contraseña visible" : "Contraseña oculta"}
+                      {msg && (
+                        <div className="alert alert-danger py-2 mb-3" role="alert">
+                          {msg}
+                        </div>
+                      )}
+
+                      <Form onSubmit={handleSubmit} className="d-grid gap-3">
+                        <Form.Group>
+                          <Form.Label className="fw-semibold">Usuario</Form.Label>
+                          <Form.Control
+                            value={usuario}
+                            onChange={(e) => setUsuario(e.target.value)}
+                            placeholder="Ej: admin"
+                            autoFocus
+                            autoComplete="username"
+                            style={{ borderRadius: 12, padding: "12px 14px" }}
+                          />
+                        </Form.Group>
+
+                        <Form.Group>
+                          <Form.Label className="fw-semibold">Contraseña</Form.Label>
+                          <InputGroup>
+                            <Form.Control
+                              type={showPass ? "text" : "password"}
+                              value={password}
+                              onChange={(e) => setPassword(e.target.value)}
+                              placeholder="••••••••"
+                              autoComplete="current-password"
+                              style={{
+                                borderTopLeftRadius: 12,
+                                borderBottomLeftRadius: 12,
+                                padding: "12px 14px",
+                              }}
+                            />
+                            <Button
+                              type="button"
+                              variant="outline-secondary"
+                              onClick={() => setShowPass((v) => !v)}
+                              style={{
+                                borderTopRightRadius: 12,
+                                borderBottomRightRadius: 12,
+                                padding: "12px 14px",
+                              }}
+                            >
+                              {showPass ? <FaEyeSlash /> : <FaEye />}
+                            </Button>
+                          </InputGroup>
+                          <div className="text-muted mt-1" style={{ fontSize: 12 }}>
+                            {showPass ? "Contraseña visible" : "Contraseña oculta"}
+                          </div>
+                        </Form.Group>
+
+                        <div className="d-flex align-items-center justify-content-between">
+                          <Form.Check
+                            type="checkbox"
+                            checked={recordarme}
+                            onChange={(e) => setRecordarme(e.target.checked)}
+                            label={<span className="text-muted" style={{ fontSize: 14 }}>Recordarme</span>}
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-link p-0 text-decoration-none"
+                            onClick={abrirReset}
+                            style={{ fontSize: 14 }}
+                          >
+                            ¿Olvidaste tu contraseña?
+                          </button>
+                        </div>
+
+                        <Button
+                          variant="dark"
+                          type="submit"
+                          className="w-100 fw-bold"
+                          disabled={disabledLogin}
+                          style={{ borderRadius: 12, padding: "12px 14px" }}
+                        >
+                          {loading ? (
+                            <span className="d-flex align-items-center justify-content-center gap-2">
+                              <Spinner size="sm" /> Entrando...
+                            </span>
+                          ) : (
+                            "Entrar"
+                          )}
+                        </Button>
+
+                        <div className="text-center text-muted" style={{ fontSize: 12 }}>
+                          © {new Date().getFullYear()} Sistema Cocina
+                          <div>Desarrollado por Kevin Garcia</div>
+                        </div>
+                      </Form>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </Form.Group>
-
-            <div className="d-flex align-items-center justify-content-between">
-              <Form.Check
-                type="checkbox"
-                checked={recordarme}
-                onChange={(e) => setRecordarme(e.target.checked)}
-                label={
-                  <span className="text-muted" style={{ fontSize: 14 }}>
-                    Recordarme
-                  </span>
-                }
-              />
-
-              <button
-                type="button"
-                className="btn btn-link p-0 text-decoration-none"
-                onClick={abrirReset}
-                style={{ fontSize: 14 }}
-              >
-                ¿Olvidaste tu contraseña?
-              </button>
             </div>
 
-            <Button
-              variant="dark"
-              type="submit"
-              className="w-100 fw-bold"
-              disabled={disabledLogin}
-              style={{ borderRadius: 12, padding: "12px 14px" }}
-            >
-              {loading ? (
-                <span className="d-flex align-items-center justify-content-center gap-2">
-                  <Spinner size="sm" /> Entrando...
-                </span>
-              ) : (
-                "Entrar"
-              )}
-            </Button>
-
-            <div className="text-center text-muted" style={{ fontSize: 12 }}>
-  © {new Date().getFullYear()} Sistema Cocina
-  <div>Desarrollado por Kevin Garcia</div>
-</div>
-
-          </Form>
+            {/* derecha libre */}
+            <div className="d-none d-lg-block col-lg-6" />
+          </div>
         </div>
       </div>
 

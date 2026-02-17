@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Badge,
@@ -12,10 +12,9 @@ import {
   Row,
   Spinner,
   Table,
-  
 } from "react-bootstrap";
- import api from "../api";
-
+import api from "../api";
+import { socket } from "../socket";
 import {
   FaCashRegister,
   FaLockOpen,
@@ -25,6 +24,8 @@ import {
   FaEye,
   FaTimes,
 } from "react-icons/fa";
+
+/* ================= Helpers ================= */
 
 function money(n) {
   const v = Number(n || 0);
@@ -54,6 +55,8 @@ function getStoredUser() {
   }
 }
 
+/* ================= Component ================= */
+
 export default function Caja() {
   const user = useMemo(() => getStoredUser(), []);
   const rol = String(user?.rol || "").toLowerCase();
@@ -79,7 +82,6 @@ export default function Caja() {
 
   // ===== admin: historial =====
   const [filtro, setFiltro] = useState(() => {
-    // por defecto: hoy
     const today = new Date();
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, "0");
@@ -95,17 +97,23 @@ export default function Caja() {
   const [resumenModal, setResumenModal] = useState(null);
   const [loadingResumenModal, setLoadingResumenModal] = useState(false);
 
-  // ===== helpers API =====
+  const timerRef = useRef(null);
+
+  /* ================= API Calls =================
+     OJO: tu axios ya tiene baseURL .../api
+     aquí NO se pone /api/...
+  */
+
   const loadSesionActiva = async () => {
     setLoading(true);
     setMsg({ type: "", text: "" });
     try {
-      const { data } = await api.get("/api/caja/sesion-activa");
-      setSesionActiva(data?.data || null);
+      const { data } = await api.get("/caja/sesion-activa");
+      const sesion = data?.data || null;
+      setSesionActiva(sesion);
 
-      // si hay sesión activa, traer resumen
-      if (data?.data?.id) {
-        const r = await api.get(`/api/caja/sesiones/${data.data.id}/resumen`);
+      if (sesion?.id) {
+        const r = await api.get(`/caja/sesiones/${sesion.id}/resumen`);
         setResumenActiva(r.data?.data || null);
       } else {
         setResumenActiva(null);
@@ -130,7 +138,7 @@ export default function Caja() {
       if (filtro.to) params.to = filtro.to;
       if (filtro.estado) params.estado = filtro.estado;
 
-      const { data } = await api.get("/api/caja/sesiones", { params });
+      const { data } = await api.get("/caja/sesiones", { params });
       setSesiones(Array.isArray(data?.data) ? data.data : []);
     } catch (e) {
       const t = e?.response?.data?.message || "No se pudo cargar el historial de caja.";
@@ -151,7 +159,7 @@ export default function Caja() {
     setBusyAbrir(true);
     setMsg({ type: "", text: "" });
     try {
-      await api.post("/api/caja/abrir", { monto_apertura: n });
+      await api.post("/caja/abrir", { monto_apertura: n });
       setMsg({ type: "success", text: "✅ Caja abierta correctamente." });
       setMontoApertura("");
       await loadSesionActiva();
@@ -174,8 +182,8 @@ export default function Caja() {
     setBusyCerrar(true);
     setMsg({ type: "", text: "" });
     try {
-      await api.post("/api/caja/cerrar", {
-        sesion_id: sesionActiva?.id, // opcional, pero mejor enviarlo
+      await api.post("/caja/cerrar", {
+        sesion_id: sesionActiva?.id,
         monto_cierre: n,
       });
       setMsg({ type: "success", text: "✅ Caja cerrada correctamente." });
@@ -196,7 +204,7 @@ export default function Caja() {
     setResumenModal(null);
 
     try {
-      const { data } = await api.get(`/api/caja/sesiones/${sesionId}/resumen`);
+      const { data } = await api.get(`/caja/sesiones/${sesionId}/resumen`);
       setResumenModal(data?.data || null);
     } catch (e) {
       const t = e?.response?.data?.message || "No se pudo cargar el resumen.";
@@ -206,20 +214,19 @@ export default function Caja() {
     }
   };
 
-  // ===== mount =====
+  /* ================= Effects ================= */
+
   useEffect(() => {
     loadSesionActiva();
     // eslint-disable-next-line
   }, []);
 
-  // ===== socket realtime (opcional) =====
+  // Realtime (opcional)
   useEffect(() => {
     if (!socket?.on) return;
 
     const onUpdate = () => {
-      // refresca caja activa (y resumen)
       loadSesionActiva();
-      // refresca admin si aplica
       if (canAdmin) loadSesionesAdmin();
     };
 
@@ -233,11 +240,26 @@ export default function Caja() {
     // eslint-disable-next-line
   }, [canAdmin]);
 
-  // ===== admin: cargar sesiones cuando filtro cambia (manual con botón) =====
+  // Cargar historial al montar si es admin/supervisor
   useEffect(() => {
     if (canAdmin) loadSesionesAdmin();
     // eslint-disable-next-line
   }, [canAdmin]);
+
+  // (Opcional) refresco suave cada 30s (solo si quieres)
+  useEffect(() => {
+    // si no te interesa, borra este useEffect completo
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      loadSesionActiva();
+      if (canAdmin) loadSesionesAdmin();
+    }, 30000);
+
+    return () => timerRef.current && clearInterval(timerRef.current);
+    // eslint-disable-next-line
+  }, [canAdmin]);
+
+  /* ================= UI Helpers ================= */
 
   const estadoBadge = (estado) => {
     const e = String(estado || "").toUpperCase();
@@ -245,6 +267,8 @@ export default function Caja() {
     if (e === "CERRADA") return <Badge bg="secondary">CERRADA</Badge>;
     return <Badge bg="light" text="dark">{e || "—"}</Badge>;
   };
+
+  /* ================= Render ================= */
 
   return (
     <Container fluid className="py-3">
@@ -281,14 +305,16 @@ export default function Caja() {
 
       {msg.text ? <Alert variant={msg.type} className="mb-3">{msg.text}</Alert> : null}
 
-      {/* ===== Estado Caja Activa ===== */}
       <Row className="g-3">
+        {/* ===== Estado Caja Activa ===== */}
         <Col xl={6}>
           <Card className="shadow-sm border-0 rounded-4">
             <Card.Body>
               <div className="d-flex align-items-center justify-content-between mb-2">
                 <div className="fw-bold">Estado actual</div>
-                {sesionActiva ? estadoBadge(sesionActiva.estado) : <Badge bg="warning" text="dark">SIN CAJA ABIERTA</Badge>}
+                {sesionActiva
+                  ? estadoBadge(sesionActiva.estado)
+                  : <Badge bg="warning" text="dark">SIN CAJA ABIERTA</Badge>}
               </div>
 
               {loading ? (
@@ -456,8 +482,16 @@ export default function Caja() {
                           </div>
                           <div className="text-muted small mt-1">
                             Diferencia:{" "}
-                            <span className={Number(resumenActiva.cuadre?.diferencia || 0) === 0 ? "text-success fw-semibold" : "text-danger fw-semibold"}>
-                              {resumenActiva.cuadre?.diferencia === null ? "—" : money(resumenActiva.cuadre?.diferencia)}
+                            <span
+                              className={
+                                Number(resumenActiva.cuadre?.diferencia || 0) === 0
+                                  ? "text-success fw-semibold"
+                                  : "text-danger fw-semibold"
+                              }
+                            >
+                              {resumenActiva.cuadre?.diferencia === null
+                                ? "—"
+                                : money(resumenActiva.cuadre?.diferencia)}
                             </span>
                           </div>
                         </Card.Body>
@@ -638,13 +672,17 @@ export default function Caja() {
                         {resumenModal.sesion?.usuario_nombre} ({resumenModal.sesion?.usuario})
                       </div>
                       <div className="text-muted small mt-1">
-                        Apertura: {fmtDate(resumenModal.sesion?.fecha_apertura)} · {money(resumenModal.sesion?.monto_apertura)}
+                        Apertura: {fmtDate(resumenModal.sesion?.fecha_apertura)} ·{" "}
+                        {money(resumenModal.sesion?.monto_apertura)}
                       </div>
                       <div className="text-muted small mt-1">
                         Estado: {resumenModal.sesion?.estado}
                       </div>
                       <div className="text-muted small mt-1">
-                        Cierre: {resumenModal.sesion?.monto_cierre === null ? "—" : money(resumenModal.sesion?.monto_cierre)}
+                        Cierre:{" "}
+                        {resumenModal.sesion?.monto_cierre === null
+                          ? "—"
+                          : money(resumenModal.sesion?.monto_cierre)}
                       </div>
                     </Card.Body>
                   </Card>
@@ -659,8 +697,16 @@ export default function Caja() {
                       </div>
                       <div className="text-muted small mt-1">
                         Diferencia:{" "}
-                        <span className={Number(resumenModal.cuadre?.diferencia || 0) === 0 ? "text-success fw-semibold" : "text-danger fw-semibold"}>
-                          {resumenModal.cuadre?.diferencia === null ? "—" : money(resumenModal.cuadre?.diferencia)}
+                        <span
+                          className={
+                            Number(resumenModal.cuadre?.diferencia || 0) === 0
+                              ? "text-success fw-semibold"
+                              : "text-danger fw-semibold"
+                          }
+                        >
+                          {resumenModal.cuadre?.diferencia === null
+                            ? "—"
+                            : money(resumenModal.cuadre?.diferencia)}
                         </span>
                       </div>
                     </Card.Body>
@@ -677,7 +723,9 @@ export default function Caja() {
                     <tbody>
                       <tr>
                         <td>Facturas</td>
-                        <td className="text-end fw-semibold">{Number(resumenModal.facturacion?.facturas_count || 0)}</td>
+                        <td className="text-end fw-semibold">
+                          {Number(resumenModal.facturacion?.facturas_count || 0)}
+                        </td>
                       </tr>
                       <tr>
                         <td>Subtotal</td>
@@ -693,7 +741,9 @@ export default function Caja() {
                       </tr>
                       <tr className="table-light">
                         <td className="fw-bold">Total</td>
-                        <td className="text-end fw-bold">{money(resumenModal.facturacion?.total_facturado || 0)}</td>
+                        <td className="text-end fw-bold">
+                          {money(resumenModal.facturacion?.total_facturado || 0)}
+                        </td>
                       </tr>
                     </tbody>
                   </Table>
@@ -732,7 +782,11 @@ export default function Caja() {
         </Modal.Body>
 
         <Modal.Footer>
-          <Button variant="outline-secondary" onClick={() => setShowResumen(false)} className="d-inline-flex align-items-center gap-2">
+          <Button
+            variant="outline-secondary"
+            onClick={() => setShowResumen(false)}
+            className="d-inline-flex align-items-center gap-2"
+          >
             <FaTimes />
             Cerrar
           </Button>
