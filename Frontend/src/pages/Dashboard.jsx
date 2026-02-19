@@ -50,7 +50,7 @@ function normalizeEstado(v) {
     return "EN_PREPARACION";
   if (["LISTA", "LISTO", "READY"].includes(s)) return "LISTA";
   if (["ENTREGADA", "ENTREGADO", "DELIVERED"].includes(s)) return "ENTREGADA";
-  if (["CANCELADA", "CANCELADO"].includes(s)) return "CANCELADA";
+  if (["ANULADA", "ANULADO", "CANCELADA", "CANCELADO"].includes(s)) return "ANULADA";
   return s || "NUEVA";
 }
 
@@ -199,7 +199,7 @@ export default function Dashboard() {
     if (e === "EN_PREPARACION") return <Badge bg="warning" text="dark">En prep.</Badge>;
     if (e === "LISTA") return <Badge bg="success">Lista</Badge>;
     if (e === "ENTREGADA") return <Badge bg="dark">Entregada</Badge>;
-    if (e === "CANCELADA") return <Badge bg="danger">Cancelada</Badge>;
+    if (e === "ANULADA") return <Badge bg="danger">Anulada</Badge>;
     return <Badge bg="light" text="dark">{e}</Badge>;
   };
 

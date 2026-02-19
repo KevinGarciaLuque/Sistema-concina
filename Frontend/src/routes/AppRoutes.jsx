@@ -3,7 +3,6 @@ import { Routes, Route, Navigate } from "react-router-dom";
 
 import Login from "../pages/Login";
 
-
 // Páginas
 import Dashboard from "../pages/Dashboard";
 import Pos from "../pages/POS/Pos";
@@ -18,6 +17,11 @@ import Admin from "../pages/admin/Admin";
 import ProductoModificadoresAdmin from "../pages/admin/ProductoModificadoresAdmin";
 import GestionUsuarios from "../pages/admin/GestionUsuarios";
 import Reportes from "../pages/admin/Reportes";
+import CaiAdmin from "../pages/admin/CaiAdmin";
+import ClientesAdmin from "../pages/admin/ClientesAdmin";
+import BackupAdmin from "../pages/admin/BackupAdmin";
+import Roles from "../pages/admin/Roles";
+import Permisos from "../pages/admin/Permisos";
 
 // Auth + Layout
 import ProtectedRoute from "../components/ProtectedRoute";
@@ -91,7 +95,6 @@ export default function AppRoutes() {
           }
         />
 
-        {/* ✅ NUEVO: Reportes */}
         <Route
           path="/reportes"
           element={
@@ -124,6 +127,53 @@ export default function AppRoutes() {
           element={
             <ProtectedRoute permiso="USUARIOS.ADMIN">
               <GestionUsuarios />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ✅ Rutas que te faltaban (por eso te mandaba al dashboard) */}
+        <Route
+          path="/admin/roles"
+          element={
+            <ProtectedRoute permiso="ROLES.ADMIN">
+              <Roles />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/permisos"
+          element={
+            <ProtectedRoute permiso="PERMISOS.ADMIN">
+              <Permisos />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ✅ NUEVOS módulos dentro del layout (para que NO desaparezca el sidebar) */}
+        <Route
+          path="/admin/cai"
+          element={
+            <ProtectedRoute permiso="CAI.ADMIN">
+              <CaiAdmin />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/clientes"
+          element={
+            <ProtectedRoute permiso="CLIENTES.ADMIN">
+              <ClientesAdmin />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/backup"
+          element={
+            <ProtectedRoute permiso="BACKUP.ADMIN">
+              <BackupAdmin />
             </ProtectedRoute>
           }
         />

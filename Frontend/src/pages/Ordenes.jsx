@@ -9,9 +9,11 @@ import {
   Form,
   InputGroup,
   Modal,
+  OverlayTrigger,
   Row,
   Spinner,
   Table,
+  Tooltip,
 } from "react-bootstrap";
 import {
   FaClipboardList,
@@ -43,7 +45,7 @@ function normalizeEstado(v) {
     return "EN_PREPARACION";
   if (["LISTA", "LISTO", "READY"].includes(s)) return "LISTA";
   if (["ENTREGADA", "ENTREGADO", "DELIVERED"].includes(s)) return "ENTREGADA";
-  if (["CANCELADA", "CANCELADO"].includes(s)) return "CANCELADA";
+  if (["ANULADA", "ANULADO", "CANCELADA", "CANCELADO"].includes(s)) return "ANULADA";
   return s || "NUEVA";
 }
 
@@ -304,18 +306,19 @@ export default function Ordenes() {
       prep: c("EN_PREPARACION"),
       lista: c("LISTA"),
       entregada: c("ENTREGADA"),
-      cancelada: c("CANCELADA"),
+      anulada: c("ANULADA"),
     };
   }, [filtradas]);
 
   const badgeEstado = (s) => {
     const e = normalizeEstado(s);
-    if (e === "NUEVA") return <Badge bg="secondary">NUEVA</Badge>;
-    if (e === "EN_PREPARACION") return <Badge bg="warning" text="dark">EN PREP.</Badge>;
-    if (e === "LISTA") return <Badge bg="success">LISTA</Badge>;
-    if (e === "ENTREGADA") return <Badge bg="dark">ENTREGADA</Badge>;
-    if (e === "CANCELADA") return <Badge bg="danger">CANCELADA</Badge>;
-    return <Badge bg="light" text="dark">{e}</Badge>;
+    const badgeStyle = { fontSize: "0.7rem", padding: "0.25rem 0.5rem" };
+    if (e === "NUEVA") return <Badge bg="secondary" style={badgeStyle}>NUEVA</Badge>;
+    if (e === "EN_PREPARACION") return <Badge bg="warning" text="dark" style={badgeStyle}>EN PREP.</Badge>;
+    if (e === "LISTA") return <Badge bg="success" style={badgeStyle}>LISTA</Badge>;
+    if (e === "ENTREGADA") return <Badge bg="dark" style={badgeStyle}>ENTREGADA</Badge>;
+    if (e === "ANULADA") return <Badge bg="danger" style={badgeStyle}>ANULADA</Badge>;
+    return <Badge bg="light" text="dark" style={badgeStyle}>{e}</Badge>;
   };
 
   const openDetalle = async (orden) => {
@@ -385,79 +388,102 @@ export default function Ordenes() {
     const disabled = busyId === o.id;
 
     return (
-      <div className="d-flex gap-2 justify-content-end flex-wrap">
-        <Button
-          size="sm"
-          variant="outline-dark"
-          className="d-inline-flex align-items-center gap-2"
-          onClick={() => openDetalle(o)}
-        >
-          <FaEye /> Ver
-        </Button>
-
-        {est === "NUEVA" ? (
+      <div className="d-flex gap-1 justify-content-end flex-wrap" style={{ minWidth: "200px" }}>
+        <OverlayTrigger placement="top" overlay={<Tooltip>Ver detalle</Tooltip>}>
           <Button
             size="sm"
-            variant="warning"
-            disabled={disabled}
-            onClick={() => cambiarEstado(o, "EN_PREPARACION")}
-            className="d-inline-flex align-items-center gap-2"
+            variant="outline-dark"
+            className="d-inline-flex align-items-center gap-1 px-2 py-1"
+            onClick={() => openDetalle(o)}
+            style={{ fontSize: "0.75rem" }}
           >
-            {disabled ? <Spinner size="sm" animation="border" /> : <FaClock />}
-            Preparación
+            <FaEye size={12} />
           </Button>
+        </OverlayTrigger>
+
+        {est === "NUEVA" ? (
+          <OverlayTrigger placement="top" overlay={<Tooltip>En preparación</Tooltip>}>
+            <span>
+              <Button
+                size="sm"
+                variant="warning"
+                disabled={disabled}
+                onClick={() => cambiarEstado(o, "EN_PREPARACION")}
+                className="d-inline-flex align-items-center gap-1 px-2 py-1"
+                style={{ fontSize: "0.75rem" }}
+              >
+                {disabled ? <Spinner size="sm" animation="border" style={{ width: "12px", height: "12px" }} /> : <FaClock size={12} />}
+              </Button>
+            </span>
+          </OverlayTrigger>
         ) : null}
 
         {est === "EN_PREPARACION" ? (
-          <Button
-            size="sm"
-            variant="success"
-            disabled={disabled}
-            onClick={() => cambiarEstado(o, "LISTA")}
-            className="d-inline-flex align-items-center gap-2"
-          >
-            {disabled ? <Spinner size="sm" animation="border" /> : <FaCheckCircle />}
-            Lista
-          </Button>
+          <OverlayTrigger placement="top" overlay={<Tooltip>Marcar como lista</Tooltip>}>
+            <span>
+              <Button
+                size="sm"
+                variant="success"
+                disabled={disabled}
+                onClick={() => cambiarEstado(o, "LISTA")}
+                className="d-inline-flex align-items-center gap-1 px-2 py-1"
+                style={{ fontSize: "0.75rem" }}
+              >
+                {disabled ? <Spinner size="sm" animation="border" style={{ width: "12px", height: "12px" }} /> : <FaCheckCircle size={12} />}
+              </Button>
+            </span>
+          </OverlayTrigger>
         ) : null}
 
         {est === "LISTA" ? (
-          <Button
-            size="sm"
-            variant="dark"
-            disabled={disabled}
-            onClick={() => cambiarEstado(o, "ENTREGADA")}
-            className="d-inline-flex align-items-center gap-2"
-          >
-            {disabled ? <Spinner size="sm" animation="border" /> : <FaCheckCircle />}
-            Entregar
-          </Button>
+          <OverlayTrigger placement="top" overlay={<Tooltip>Entregar orden</Tooltip>}>
+            <span>
+              <Button
+                size="sm"
+                variant="dark"
+                disabled={disabled}
+                onClick={() => cambiarEstado(o, "ENTREGADA")}
+                className="d-inline-flex align-items-center gap-1 px-2 py-1"
+                style={{ fontSize: "0.75rem" }}
+              >
+                {disabled ? <Spinner size="sm" animation="border" style={{ width: "12px", height: "12px" }} /> : <FaCheckCircle size={12} />}
+              </Button>
+            </span>
+          </OverlayTrigger>
         ) : null}
 
         {["EN_PREPARACION", "LISTA"].includes(est) ? (
-          <Button
-            size="sm"
-            variant="outline-secondary"
-            disabled={disabled}
-            onClick={() => cambiarEstado(o, "NUEVA")}
-            className="d-inline-flex align-items-center gap-2"
-          >
-            <FaUndo />
-            Regresar
-          </Button>
+          <OverlayTrigger placement="top" overlay={<Tooltip>Regresar a nueva</Tooltip>}>
+            <span>
+              <Button
+                size="sm"
+                variant="outline-secondary"
+                disabled={disabled}
+                onClick={() => cambiarEstado(o, "NUEVA")}
+                className="d-inline-flex align-items-center gap-1 px-2 py-1"
+                style={{ fontSize: "0.75rem" }}
+              >
+                <FaUndo size={12} />
+              </Button>
+            </span>
+          </OverlayTrigger>
         ) : null}
 
-        {["CANCELADA", "ENTREGADA"].includes(est) ? null : (
-          <Button
-            size="sm"
-            variant="outline-danger"
-            disabled={disabled}
-            onClick={() => cambiarEstado(o, "CANCELADA")}
-            className="d-inline-flex align-items-center gap-2"
-          >
-            <FaBan />
-            Cancelar
-          </Button>
+        {["ANULADA", "ENTREGADA"].includes(est) ? null : (
+          <OverlayTrigger placement="top" overlay={<Tooltip>Anular orden</Tooltip>}>
+            <span>
+              <Button
+                size="sm"
+                variant="outline-danger"
+                disabled={disabled}
+                onClick={() => cambiarEstado(o, "ANULADA")}
+                className="d-inline-flex align-items-center gap-1 px-2 py-1"
+                style={{ fontSize: "0.75rem" }}
+              >
+                <FaBan size={12} />
+              </Button>
+            </span>
+          </OverlayTrigger>
         )}
       </div>
     );
@@ -519,7 +545,7 @@ export default function Ordenes() {
           { label: "Preparación", val: kpis.prep },
           { label: "Listas", val: kpis.lista },
           { label: "Entregadas", val: kpis.entregada },
-          { label: "Canceladas", val: kpis.cancelada },
+          { label: "Anuladas", val: kpis.anulada },
         ].map((k) => (
           <Col key={k.label} xs={6} md={4} lg={2}>
             <Card className="shadow-sm border-0 rounded-4">
@@ -564,7 +590,7 @@ export default function Ordenes() {
                 <option value="EN_PREPARACION">EN PREPARACIÓN</option>
                 <option value="LISTA">LISTA</option>
                 <option value="ENTREGADA">ENTREGADA</option>
-                <option value="CANCELADA">CANCELADA</option>
+                <option value="ANULADA">ANULADA</option>
               </Form.Select>
             </Col>
             <Col xs={6} lg={2}>
@@ -670,21 +696,43 @@ export default function Ordenes() {
         </div>
       ) : (
         <Card className="shadow-sm border-0 rounded-4">
-          <Card.Body>
-            <div style={{ maxHeight: "70vh", overflow: "auto" }}>
-              <Table responsive hover className="mb-0 align-middle">
-                <thead style={{ position: "sticky", top: 0, zIndex: 1, background: "white" }}>
+          <Card.Body className="p-0">
+            <div 
+              className="table-responsive"
+              style={{ 
+                maxHeight: "400px", 
+                overflow: "auto",
+                borderRadius: "1rem"
+              }}
+            >
+              <Table 
+                hover 
+                className="mb-0 align-middle" 
+                style={{ 
+                  fontSize: "0.875rem",
+                  minWidth: "900px"
+                }}
+              >
+                <thead 
+                  style={{ 
+                    position: "sticky", 
+                    top: 0, 
+                    zIndex: 2, 
+                    background: "#f8f9fa",
+                    boxShadow: "0 2px 4px rgba(0,0,0,0.05)"
+                  }}
+                >
                   <tr>
-                    <th style={{ minWidth: 110 }}>Código</th>
-                    <th style={{ minWidth: 170 }}>Fecha</th>
-                    <th style={{ minWidth: 110 }}>Tipo</th>
-                    <th style={{ minWidth: 90 }}>Mesa</th>
-                    <th style={{ minWidth: 150 }}>Estado</th>
-                    <th style={{ minWidth: 90 }}>Items</th>
-                    <th style={{ minWidth: 120 }} className="text-end">
+                    <th style={{ padding: "0.75rem 0.5rem", width: "110px" }}>Código</th>
+                    <th style={{ padding: "0.75rem 0.5rem", width: "130px" }}>Fecha</th>
+                    <th style={{ padding: "0.75rem 0.5rem", width: "70px" }}>Tipo</th>
+                    <th style={{ padding: "0.75rem 0.5rem", width: "60px" }}>Mesa</th>
+                    <th style={{ padding: "0.75rem 0.5rem", width: "100px" }}>Estado</th>
+                    <th style={{ padding: "0.75rem 0.5rem", width: "50px", textAlign: "center" }}>Items</th>
+                    <th style={{ padding: "0.75rem 0.5rem", width: "90px" }} className="text-end">
                       Total
                     </th>
-                    <th style={{ minWidth: 280 }} className="text-end">
+                    <th style={{ padding: "0.75rem 0.5rem", width: "auto" }} className="text-end">
                       Acciones
                     </th>
                   </tr>
@@ -692,27 +740,35 @@ export default function Ordenes() {
                 <tbody>
                   {filtradas.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="text-muted py-4">
+                      <td colSpan={8} className="text-muted py-4 text-center">
                         No hay órdenes con esos filtros.
                       </td>
                     </tr>
                   ) : (
                     filtradas.map((o) => (
-                      <tr key={o.id}>
-                        <td className="fw-bold">{o.codigo}</td>
-                        <td className="text-muted" style={{ fontSize: 12 }}>
+                      <tr key={o.id} style={{ fontSize: "0.85rem" }}>
+                        <td className="fw-bold" style={{ padding: "0.6rem 0.5rem" }}>
+                          {o.codigo}
+                        </td>
+                        <td className="text-muted" style={{ padding: "0.6rem 0.5rem", fontSize: "0.75rem" }}>
                           {fmtDateTime(o.createdAt)}
                         </td>
-                        <td>
-                          <Badge bg="dark">{o.tipo}</Badge>
+                        <td style={{ padding: "0.6rem 0.5rem" }}>
+                          <Badge bg="dark" style={{ fontSize: "0.7rem" }}>{o.tipo}</Badge>
                         </td>
-                        <td>{o.tipo === "MESA" ? o.mesa ?? "—" : "—"}</td>
-                        <td>{badgeEstado(o.estado)}</td>
-                        <td className="fw-semibold">{pickItems(o).length || o.items_count || 0}</td>
-                        <td className="text-end fw-bold">
+                        <td style={{ padding: "0.6rem 0.5rem", textAlign: "center" }}>
+                          {o.tipo === "MESA" ? o.mesa ?? "—" : "—"}
+                        </td>
+                        <td style={{ padding: "0.6rem 0.5rem" }}>{badgeEstado(o.estado)}</td>
+                        <td className="fw-semibold text-center" style={{ padding: "0.6rem 0.5rem" }}>
+                          {pickItems(o).length || o.items_count || 0}
+                        </td>
+                        <td className="text-end fw-bold" style={{ padding: "0.6rem 0.5rem" }}>
                           {o.total == null ? "—" : money(o.total)}
                         </td>
-                        <td className="text-end">{acciones(o)}</td>
+                        <td className="text-end" style={{ padding: "0.6rem 0.5rem" }}>
+                          {acciones(o)}
+                        </td>
                       </tr>
                     ))
                   )}

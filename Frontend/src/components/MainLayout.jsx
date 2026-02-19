@@ -16,7 +16,10 @@ import {
   FaUsers,
   FaKey,
   FaUserShield,
+  FaDatabase,
+  FaAddressCard,
 } from "react-icons/fa";
+
 import { socket } from "../socket";
 import Sidebar from "./Sidebar";
 import { useAuth } from "../context/AuthContext";
@@ -121,7 +124,7 @@ export default function MainLayout() {
         ],
       },
       {
-        title: "Administrador",
+        title: "Administrador", //admiinistrador general del sistema, acceso a todo ///////////////////////////////
         items: [
           {
             to: "/admin",
@@ -147,10 +150,28 @@ export default function MainLayout() {
             icon: <FaKey />,
             anyPerm: ["PERMISOS.ADMIN"],
           },
+          {
+            to: "/admin/cai",
+            label: "CAI",
+            icon: <FaKey />,
+            anyPerm: ["CAI.ADMIN"],
+          },
+          {
+            to: "/admin/clientes",
+            label: "Clientes",
+            icon: <FaAddressCard />,
+            anyPerm: ["CLIENTES.ADMIN"],
+          },
+          {
+            to: "/admin/backup",
+            label: "Backup BD",
+            icon: <FaDatabase />,
+            anyPerm: ["BACKUP.ADMIN"],
+          },
         ],
       },
     ],
-    []
+    [],
   );
 
   // ✅ Filtrado real por permisos (si tiene cualquiera de anyPerm)

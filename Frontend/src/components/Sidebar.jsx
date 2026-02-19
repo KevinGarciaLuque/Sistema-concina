@@ -1,13 +1,24 @@
 // Frontend/src/components/Sidebar.jsx
 import { useMemo, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { Badge, Button, Nav, Offcanvas } from "react-bootstrap";
+import { Badge, Button, Nav, Offcanvas, Alert } from "react-bootstrap";
 import {
   FaChevronRight,
   FaSignOutAlt,
   FaAngleRight,
   FaAngleLeft,
 } from "react-icons/fa";
+
+/**
+ * ✅ NOTA IMPORTANTE (para tu caso):
+ * Este Sidebar SOLO muestra lo que venga en `menuVisible`.
+ * Si no aparecen módulos, el problema está en MainLayout:
+ * - o no agregaste los items al `menu`
+ * - o NO existen/NO están asignados los permisos (hasAnyPermiso devuelve false)
+ *
+ * Aquí añadí un bloque "diagnóstico visual" cuando menuVisible está vacío,
+ * para que no quede “en blanco” y te diga la causa real.
+ */
 
 export default function Sidebar({
   mode = "desktop", // "desktop" | "mobile"
@@ -22,7 +33,6 @@ export default function Sidebar({
 }) {
   const location = useLocation();
   const isDesktop = mode === "desktop";
-
   const [hoveredTo, setHoveredTo] = useState(null);
 
   const theme = useMemo(
@@ -33,7 +43,7 @@ export default function Sidebar({
       hoverBg: "rgba(255,255,255,.10)",
       activeBorder: "rgba(255,255,255,.14)",
       hoverBorder: "rgba(255,255,255,.14)",
-      activeBar: "rgba(96,165,250,.95)", // azul suave
+      activeBar: "rgba(96,165,250,.95)",
       shadow: "0 10px 30px rgba(0,0,0,.18)",
       shadowHover: "0 14px 34px rgba(0,0,0,.28)",
       textMuted: "rgba(255,255,255,.62)",
@@ -43,16 +53,15 @@ export default function Sidebar({
 
   const closeMobile = () => setShow?.(false);
 
-  /**
-   * ✅ FIX: el "end" NO debe ir siempre.
-   * - Si la ruta es "/dashboard" => end=true para que no se active en "/dashboard/..."
-   * - Si la ruta es "/admin" => end=false para que siga activo en "/admin/usuarios", "/admin/productos/..."
-   */
+  // ✅ FIX: el "end" NO debe ir siempre
   const shouldEnd = (to) => {
     const t = String(to || "");
     if (!t.startsWith("/")) return true;
+
     // rutas "padre" que deben quedar activas en subrutas
+    // si tuvieras más "padres", agrégalos aquí:
     if (t === "/admin") return false;
+
     return true;
   };
 
@@ -179,6 +188,8 @@ export default function Sidebar({
 
   // ===== DESKTOP =====
   if (isDesktop) {
+    const sinMenu = !Array.isArray(menuVisible) || menuVisible.length === 0;
+
     return (
       <div
         className="rounded-4 shadow-sm position-sticky"
@@ -193,11 +204,11 @@ export default function Sidebar({
         {/* ✅ Scrollbars ocultos (pero scroll activo) */}
         <style>{`
           .sidebar-scroll {
-            scrollbar-width: none;        /* Firefox */
-            -ms-overflow-style: none;     /* IE/Edge antiguo */
+            scrollbar-width: none;
+            -ms-overflow-style: none;
           }
           .sidebar-scroll::-webkit-scrollbar {
-            width: 0px;                   /* Chrome/Safari/Edge */
+            width: 0px;
             height: 0px;
           }
         `}</style>
@@ -276,6 +287,46 @@ export default function Sidebar({
                 </Button>
               </div>
             </div>
+          ) : sinMenu ? (
+            <div className="px-2 pb-2">
+              {!collapsed ? (
+                <Alert
+                  variant="warning"
+                  className="mb-2"
+                  style={{
+                    borderRadius: 14,
+                    background: "rgba(255,193,7,.10)",
+                    borderColor: "rgba(255,193,7,.22)",
+                    color: "white",
+                  }}
+                >
+                  <div className="fw-bold" style={{ color: "white" }}>
+                    No hay módulos visibles
+                  </div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,.80)" }}>
+                    Esto NO es el Sidebar: <b>menuVisible</b> viene vacío desde
+                    MainLayout.
+                    <br />
+                    Normalmente pasa porque faltan permisos en BD o no están
+                    asignados al rol.
+                  </div>
+                </Alert>
+              ) : null}
+
+              <div className="d-grid gap-2 px-2">
+                <Button
+                  variant="outline-light"
+                  size="sm"
+                  onClick={() => window.location.reload()}
+                >
+                  Recargar
+                </Button>
+                <Button variant="outline-danger" size="sm" onClick={logout}>
+                  <FaSignOutAlt className="me-2" />
+                  Salir
+                </Button>
+              </div>
+            </div>
           ) : (
             menuVisible.map((sec) => (
               <div key={sec.title} className="mb-2">
@@ -320,6 +371,8 @@ export default function Sidebar({
   }
 
   // ===== MOBILE/TABLET (OFFCANVAS) =====
+  const sinMenuMobile = !Array.isArray(menuVisible) || menuVisible.length === 0;
+
   return (
     <Offcanvas show={show} onHide={closeMobile} placement="start">
       <Offcanvas.Header closeButton>
@@ -343,6 +396,11 @@ export default function Sidebar({
               </Button>
             </div>
           </div>
+        ) : sinMenuMobile ? (
+          <Alert variant="warning" className="rounded-4">
+            No hay módulos visibles. Revisa permisos/roles (menuVisible llega
+            vacío).
+          </Alert>
         ) : (
           menuVisible.map((sec) => (
             <div key={sec.title} className="mb-3">

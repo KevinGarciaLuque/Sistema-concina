@@ -1,6 +1,18 @@
+// Frontend/src/pages/POS/Pos.jsx
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Badge, Button, Col, Container, Offcanvas, Row, Spinner } from "react-bootstrap";
-import { FaShoppingCart, FaSyncAlt } from "react-icons/fa";
+import {
+  Alert,
+  Badge,
+  Button,
+  Col,
+  Container,
+  Form,
+  Offcanvas,
+  Row,
+  Spinner,
+  Modal,
+} from "react-bootstrap";
+import { FaShoppingCart, FaSyncAlt, FaUserTag, FaIdCard } from "react-icons/fa";
 import api from "../../api";
 import { socket } from "../../socket";
 
@@ -9,9 +21,16 @@ import CarritoPOS from "./components/CarritoPOS";
 import CheckoutPanel from "./components/CheckoutPanel";
 import ModalModificadores from "./components/ModalModificadores";
 
+// ✅ NUEVO (módulo 1)
+import MetodosPagos from "./components/MetodosPagos";
+import { generarTicket80mmPDF } from "../../utils/ticket80mm";
+
 function uid() {
-  try { return crypto.randomUUID(); }
-  catch { return `id_${Date.now()}_${Math.floor(Math.random() * 100000)}`; }
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `id_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+  }
 }
 
 function round2(n) {
@@ -71,17 +90,36 @@ export default function Pos() {
   const subtotal = useMemo(() => {
     return round2(
       carrito.reduce((acc, it) => {
-        const extra = (it.opciones || []).reduce((a, o) => a + Number(o.precio_extra || 0), 0);
-        const line = (Number(it.precio_unitario || 0) + extra) * Number(it.cantidad || 1);
+        const extra = (it.opciones || []).reduce(
+          (a, o) => a + Number(o.precio_extra || 0),
+          0,
+        );
+        const line =
+          (Number(it.precio_unitario || 0) + extra) * Number(it.cantidad || 1);
         return acc + line;
-      }, 0)
+      }, 0),
     );
   }, [carrito]);
 
   const total = useMemo(
     () => round2(subtotal - Number(descuento || 0) + Number(impuesto || 0)),
-    [subtotal, descuento, impuesto]
+    [subtotal, descuento, impuesto],
   );
+
+  // ✅ NUEVO: snapshot de venta (para cobrar aunque ya limpies el carrito)
+  const [ventaDraft, setVentaDraft] = useState(null);
+
+  // ✅ NUEVO: caja activa + cobro
+  const [cajaSesion, setCajaSesion] = useState(null);
+  const [showCobro, setShowCobro] = useState(false);
+  const [pagoState, setPagoState] = useState(null);
+  const [busyCobrar, setBusyCobrar] = useState(false);
+
+  // ✅ NUEVO: clientes con RTN para modal de cobro
+  const [clientesConRtn, setClientesConRtn] = useState([]);
+  const [loadingClientesRtn, setLoadingClientesRtn] = useState(false);
+  const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
+  const [usarClienteRtn, setUsarClienteRtn] = useState(false);
 
   // ===== load categorías/productos =====
   const loadCategorias = async () => {
@@ -91,7 +129,10 @@ export default function Pos() {
       setCategorias(Array.isArray(data?.data) ? data.data : []);
     } catch (e) {
       setCategorias([]);
-      setMsg({ type: "danger", text: e?.response?.data?.message || "No se pudieron cargar categorías." });
+      setMsg({
+        type: "danger",
+        text: e?.response?.data?.message || "No se pudieron cargar categorías.",
+      });
     } finally {
       setLoadingCat(false);
     }
@@ -108,7 +149,10 @@ export default function Pos() {
       setProductos(Array.isArray(data?.data) ? data.data : []);
     } catch (e) {
       setProductos([]);
-      setMsg({ type: "danger", text: e?.response?.data?.message || "No se pudieron cargar productos." });
+      setMsg({
+        type: "danger",
+        text: e?.response?.data?.message || "No se pudieron cargar productos.",
+      });
     } finally {
       setLoadingProd(false);
     }
@@ -119,9 +163,13 @@ export default function Pos() {
     await Promise.all([loadCategorias(), loadProductos()]);
   };
 
-  useEffect(() => { refreshAll(); }, []); // eslint-disable-line
+  useEffect(() => {
+    refreshAll();
+  }, []); // eslint-disable-line
 
-  useEffect(() => { loadProductos(); }, [categoriaId]); // eslint-disable-line
+  useEffect(() => {
+    loadProductos();
+  }, [categoriaId]); // eslint-disable-line
 
   useEffect(() => {
     const t = setTimeout(() => loadProductos(), 250);
@@ -133,26 +181,66 @@ export default function Pos() {
     if (!socket?.on) return;
     const onCatalog = () => loadProductos();
     socket.on("catalogo:update", onCatalog);
-    return () => { try { socket.off("catalogo:update", onCatalog); } catch {} };
+    return () => {
+      try {
+        socket.off("catalogo:update", onCatalog);
+      } catch {}
+    };
   }, []); // eslint-disable-line
+
+  // ✅ NUEVO: cargar caja activa
+  const loadCajaActiva = async () => {
+    try {
+      const { data } = await api.get("/caja/sesion-activa");
+      const ses = data?.data ?? data;
+      setCajaSesion(ses?.id ? ses : null);
+    } catch {
+      setCajaSesion(null);
+    }
+  };
+
+  useEffect(() => {
+    loadCajaActiva();
+  }, []);
 
   // ===== carrito actions =====
   const inc = (id) =>
-    setCarrito((prev) => prev.map((it) => (it.id === id ? { ...it, cantidad: Number(it.cantidad) + 1 } : it)));
+    setCarrito((prev) =>
+      prev.map((it) =>
+        it.id === id ? { ...it, cantidad: Number(it.cantidad) + 1 } : it,
+      ),
+    );
 
   const dec = (id) =>
-    setCarrito((prev) => prev.map((it) => (it.id === id ? { ...it, cantidad: Math.max(1, Number(it.cantidad) - 1) } : it)));
+    setCarrito((prev) =>
+      prev.map((it) =>
+        it.id === id
+          ? { ...it, cantidad: Math.max(1, Number(it.cantidad) - 1) }
+          : it,
+      ),
+    );
 
-  const remove = (id) => setCarrito((prev) => prev.filter((it) => it.id !== id));
+  const remove = (id) =>
+    setCarrito((prev) => prev.filter((it) => it.id !== id));
 
   const setQty = (id, qty) =>
-    setCarrito((prev) => prev.map((it) => (it.id === id ? { ...it, cantidad: Math.max(1, Number(qty || 1)) } : it)));
+    setCarrito((prev) =>
+      prev.map((it) =>
+        it.id === id ? { ...it, cantidad: Math.max(1, Number(qty || 1)) } : it,
+      ),
+    );
 
   const setNotasItem = (id, notas) =>
-    setCarrito((prev) => prev.map((it) => (it.id === id ? { ...it, notas } : it)));
+    setCarrito((prev) =>
+      prev.map((it) => (it.id === id ? { ...it, notas } : it)),
+    );
 
   // ===== abrir modal modificadores =====
-  const abrirModificadoresParaProducto = async (producto, modo = "add", itemExistente = null) => {
+  const abrirModificadoresParaProducto = async (
+    producto,
+    modo = "add",
+    itemExistente = null,
+  ) => {
     setMsg({ type: "", text: "" });
     setModsLoading(true);
     setModsProducto(null);
@@ -160,7 +248,10 @@ export default function Pos() {
     setEditItemId(modo === "edit" ? itemExistente?.id : null);
 
     try {
-      const { data } = await api.get(`/modificadores/por-producto/${producto.id}`);
+      const { data } = await api.get(
+        `/modificadores/por-producto/${producto.id}`,
+        { params: { _t: Date.now() } },
+      );
       const mods = Array.isArray(data?.data) ? data.data : [];
 
       let preset = {};
@@ -175,7 +266,11 @@ export default function Pos() {
       setModsProducto({ producto, modificadores: mods, preset });
     } catch (e) {
       setShowMods(false);
-      setMsg({ type: "danger", text: e?.response?.data?.message || "No se pudieron cargar modificadores." });
+      setMsg({
+        type: "danger",
+        text:
+          e?.response?.data?.message || "No se pudieron cargar modificadores.",
+      });
     } finally {
       setModsLoading(false);
     }
@@ -186,14 +281,20 @@ export default function Pos() {
   };
 
   const editItem = async (item) => {
-    const producto = { id: item.producto_id, nombre: item.producto_nombre, precio: item.precio_unitario };
+    const producto = {
+      id: item.producto_id,
+      nombre: item.producto_nombre,
+      precio: item.precio_unitario,
+    };
     await abrirModificadoresParaProducto(producto, "edit", item);
   };
 
   const confirmarMods = ({ producto, opcionesElegidas }) => {
     setCarrito((prev) => {
       if (editItemId) {
-        return prev.map((it) => (it.id === editItemId ? { ...it, opciones: opcionesElegidas } : it));
+        return prev.map((it) =>
+          it.id === editItemId ? { ...it, opciones: opcionesElegidas } : it,
+        );
       }
       return [
         ...prev,
@@ -201,7 +302,9 @@ export default function Pos() {
           id: uid(),
           producto_id: Number(producto.id),
           producto_nombre: String(producto.nombre),
-          precio_unitario: Number(producto.precio ?? producto.precio_unitario ?? 0),
+          precio_unitario: Number(
+            producto.precio ?? producto.precio_unitario ?? 0,
+          ),
           cantidad: 1,
           notas: "",
           opciones: opcionesElegidas,
@@ -219,11 +322,21 @@ export default function Pos() {
   const crearOrden = async () => {
     setMsg({ type: "", text: "" });
 
-    if (!carrito.length) return setMsg({ type: "warning", text: "Agrega productos al carrito." });
+    if (!carrito.length)
+      return setMsg({ type: "warning", text: "Agrega productos al carrito." });
+
     if (tipo === "MESA" && !String(mesa || "").trim()) {
-      return setMsg({ type: "warning", text: "Si el tipo es MESA, debes indicar la mesa." });
+      return setMsg({
+        type: "warning",
+        text: "Si el tipo es MESA, debes indicar la mesa.",
+      });
     }
-    if (total < 0) return setMsg({ type: "danger", text: "Total inválido. Revisa descuento/impuesto." });
+
+    if (total < 0)
+      return setMsg({
+        type: "danger",
+        text: "Total inválido. Revisa descuento/impuesto.",
+      });
 
     const payload = {
       cliente_nombre: String(clienteNombre || "").trim() || null,
@@ -236,7 +349,9 @@ export default function Pos() {
         producto_id: Number(it.producto_id),
         cantidad: Number(it.cantidad || 1),
         notas: String(it.notas || "").trim() || null,
-        opciones: (it.opciones || []).map((o) => ({ opcion_id: Number(o.opcion_id) })),
+        opciones: (it.opciones || []).map((o) => ({
+          opcion_id: Number(o.opcion_id),
+        })),
       })),
     };
 
@@ -244,9 +359,20 @@ export default function Pos() {
     try {
       const { data } = await api.post("/ordenes", payload);
 
-      setOrdenCreada({ id: data?.id, codigo: data?.codigo });
+      const ordenObj = { id: data?.id, codigo: data?.codigo };
+      setOrdenCreada(ordenObj);
 
-      // reset POS
+      // ✅ snapshot para cobrar aunque limpiemos el carrito
+      setVentaDraft({
+        orden: ordenObj,
+        cliente_nombre: String(clienteNombre || "").trim() || null,
+        subtotal,
+        descuento: Number(descuento || 0),
+        impuesto: Number(impuesto || 0),
+        total,
+      });
+
+      // reset POS (se queda la orden creada y draft listo para cobrar)
       setCarrito([]);
       setClienteNombre("");
       setMesa("");
@@ -255,13 +381,140 @@ export default function Pos() {
       setImpuesto(0);
       setTipo("LLEVAR");
 
-      setMsg({ type: "success", text: `✅ Orden creada y enviada a cocina: ${data?.codigo}` });
+      setMsg({
+        type: "success",
+        text: `✅ Orden creada y enviada a cocina: ${data?.codigo}`,
+      });
+
       setShowCartMobile(false);
+
+      // ✅ abrir cobro (módulo 1)
+      await loadCajaActiva();
+      setPagoState(null);
+      setUsarClienteRtn(false);
+      setClienteSeleccionado(null);
+      setShowCobro(true);
     } catch (e) {
-      setMsg({ type: "danger", text: e?.response?.data?.message || "No se pudo crear la orden." });
+      setMsg({
+        type: "danger",
+        text: e?.response?.data?.message || "No se pudo crear la orden.",
+      });
     } finally {
       setBusyCrear(false);
     }
+  };
+
+  // ✅ COBRAR + IMPRIMIR (módulo 1)
+  const cobrarEImprimir = async () => {
+    setMsg({ type: "", text: "" });
+
+    if (!ventaDraft?.orden?.id) {
+      return setMsg({
+        type: "warning",
+        text: "No hay una orden lista para cobrar.",
+      });
+    }
+    if (!cajaSesion?.id) {
+      return setMsg({
+        type: "danger",
+        text: "No hay caja abierta. Abre caja para poder cobrar.",
+      });
+    }
+    if (!pagoState?.isValid) {
+      return setMsg({
+        type: "warning",
+        text: pagoState?.error || "Pago inválido.",
+      });
+    }
+
+    setBusyCobrar(true);
+    try {
+      const payload = {
+        orden_id: ventaDraft.orden.id,
+        caja_sesion_id: cajaSesion.id,
+        // ⚠️ Con CAI: ya NO enviamos numero_factura, se genera automáticamente en backend
+
+        cliente_nombre: usarClienteRtn && clienteSeleccionado?.nombre 
+          ? clienteSeleccionado.nombre 
+          : ventaDraft.cliente_nombre,
+        cliente_rtn: usarClienteRtn && clienteSeleccionado?.rtn ? clienteSeleccionado.rtn : null,
+        cliente_telefono: usarClienteRtn && clienteSeleccionado?.telefono ? clienteSeleccionado.telefono : null,
+        cliente_direccion: usarClienteRtn && clienteSeleccionado?.direccion ? clienteSeleccionado.direccion : null,
+
+        subtotal: ventaDraft.subtotal,
+        descuento: ventaDraft.descuento,
+        impuesto: ventaDraft.impuesto,
+        total: ventaDraft.total,
+
+        pagos: pagoState.pagos,
+      };
+
+      const { data } = await api.post("/pos/cobrar", payload);
+      const facturaId = data?.data?.factura_id;
+      const numeroFactura = data?.data?.numero_factura;
+
+      console.log("💰 Factura creada:", { facturaId, numeroFactura });
+
+      // Traer data completa del ticket (factura + pagos + items + opciones)
+      const r = await api.get(`/facturas/${facturaId}/recibo`);
+      console.log("📋 Respuesta del recibo:", r);
+      const recibo = r?.data?.data;
+      console.log("📄 Datos del recibo:", recibo);
+
+      // Generar ticket 80mm
+      generarTicket80mmPDF(recibo);
+
+      setShowCobro(false);
+      setVentaDraft(null);
+      setOrdenCreada(null);
+
+      setMsg({
+        type: "success",
+        text: `✅ Venta cobrada e impresa. Factura: ${numeroFactura || facturaId}`,
+      });
+    } catch (e) {
+      setMsg({
+        type: "danger",
+        text: e?.response?.data?.message || "No se pudo cobrar/imprimir.",
+      });
+    } finally {
+      setBusyCobrar(false);
+    }
+  };
+
+  const totalCobro = Number(ventaDraft?.total ?? 0);
+
+  // ✅ Cargar clientes con RTN cuando se abre el modal de cobro
+  useEffect(() => {
+    if (showCobro && clientesConRtn.length === 0) {
+      cargarClientesConRtn();
+    }
+    // eslint-disable-next-line
+  }, [showCobro]);
+
+  const cargarClientesConRtn = async () => {
+    setLoadingClientesRtn(true);
+    try {
+      const { data } = await api.get("/clientes", { params: { activo: 1, limit: 200 } });
+      const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+      // Filtrar solo clientes con RTN
+      setClientesConRtn(rows.filter((c) => c.rtn));
+    } catch (error) {
+      console.error("Error cargando clientes:", error);
+      setClientesConRtn([]);
+    } finally {
+      setLoadingClientesRtn(false);
+    }
+  };
+
+  const handleSeleccionarClienteRtn = (e) => {
+    const id = e.target.value;
+    if (!id) {
+      setClienteSeleccionado(null);
+      return;
+    }
+    const cliente = clientesConRtn.find((c) => String(c.id) === String(id));
+    setClienteSeleccionado(cliente || null);
   };
 
   return (
@@ -269,16 +522,26 @@ export default function Pos() {
       <Row className="align-items-center g-2 mb-2">
         <Col>
           <div className="d-flex align-items-center gap-2">
-            <div className="rounded-3 d-inline-flex align-items-center justify-content-center"
-              style={{ width: 40, height: 40, background: "rgba(25,135,84,.12)" }}>
+            <div
+              className="rounded-3 d-inline-flex align-items-center justify-content-center"
+              style={{
+                width: 40,
+                height: 40,
+                background: "rgba(25,135,84,.12)",
+              }}
+            >
               <FaShoppingCart />
             </div>
             <div>
               <div className="fw-bold" style={{ fontSize: 18 }}>
-                POS (Cajero) <Badge bg="success" className="ms-2">LIVE</Badge>
+                POS (Cajero){" "}
+                <Badge bg="success" className="ms-2">
+                  LIVE
+                </Badge>
               </div>
               <div className="text-muted" style={{ fontSize: 12 }}>
-                Catálogo · Carrito · Modificadores · Enviar a cocina
+                Catálogo · Carrito · Modificadores · Enviar a cocina · Cobrar e
+                imprimir
               </div>
             </div>
           </div>
@@ -304,12 +567,18 @@ export default function Pos() {
           >
             <FaShoppingCart />
             Carrito
-            <Badge bg="light" text="dark">{carrito.length}</Badge>
+            <Badge bg="light" text="dark">
+              {carrito.length}
+            </Badge>
           </Button>
         </Col>
       </Row>
 
-      {msg.text ? <Alert variant={msg.type} className="mb-3">{msg.text}</Alert> : null}
+      {msg.text ? (
+        <Alert variant={msg.type} className="mb-3">
+          {msg.text}
+        </Alert>
+      ) : null}
 
       <Row className="g-3">
         <Col lg={8}>
@@ -364,10 +633,17 @@ export default function Pos() {
         </Col>
       </Row>
 
-      <Offcanvas show={showCartMobile} onHide={() => setShowCartMobile(false)} placement="end">
+      <Offcanvas
+        show={showCartMobile}
+        onHide={() => setShowCartMobile(false)}
+        placement="end"
+      >
         <Offcanvas.Header closeButton>
           <Offcanvas.Title className="fw-bold">
-            Carrito <Badge bg="dark" className="ms-2">{carrito.length}</Badge>
+            Carrito{" "}
+            <Badge bg="dark" className="ms-2">
+              {carrito.length}
+            </Badge>
           </Offcanvas.Title>
         </Offcanvas.Header>
         <Offcanvas.Body>
@@ -418,16 +694,195 @@ export default function Pos() {
         onConfirm={confirmarMods}
       />
 
+      {/* ✅ Modal de cobro */}
+      <Modal
+        show={showCobro}
+        onHide={() => setShowCobro(false)}
+        centered
+        size="lg"
+        backdrop="static"
+      >
+        <Modal.Header closeButton>
+          <Modal.Title className="fw-bold">Cobrar e imprimir</Modal.Title>
+        </Modal.Header>
+
+        <Modal.Body>
+          <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+            <div className="text-muted">
+              Orden: <b>{ventaDraft?.orden?.codigo || "—"}</b>
+            </div>
+            <div className="fw-bold">
+              Total: L {Number(totalCobro || 0).toFixed(2)}
+            </div>
+          </div>
+
+          <div className="text-muted mb-3" style={{ fontSize: 12 }}>
+            Caja:{" "}
+            {cajaSesion?.id ? (
+              <b>ABIERTA (ID {cajaSesion.id})</b>
+            ) : (
+              <b className="text-danger">CERRADA / SIN SESIÓN</b>
+            )}
+          </div>
+
+          {/* ✅ NUEVO: Selector de cliente con RTN */}
+          <div className="mb-4">
+            <div className="d-flex align-items-center gap-2 mb-3">
+              <div 
+                className="rounded-3 d-inline-flex align-items-center justify-content-center"
+                style={{ width: 36, height: 36, background: "rgba(13,110,253,.12)" }}
+              >
+                <FaUserTag size={18} color="#0d6efd" />
+              </div>
+              <div className="flex-grow-1">
+                <div className="fw-bold" style={{ fontSize: 15 }}>Cliente con RTN (Fiscal)</div>
+                <div className="text-muted" style={{ fontSize: 11 }}>
+                  Opcional - Solo si requiere factura con RTN
+                </div>
+              </div>
+              <Form.Check
+                type="switch"
+                id="switch-usar-rtn-cobro"
+                checked={usarClienteRtn}
+                onChange={(e) => {
+                  setUsarClienteRtn(e.target.checked);
+                  if (!e.target.checked) setClienteSeleccionado(null);
+                }}
+                style={{ transform: "scale(1.2)" }}
+              />
+            </div>
+
+            {usarClienteRtn && (
+              <div className="p-3 border rounded-4 bg-light">
+                {loadingClientesRtn ? (
+                  <div className="text-center py-3">
+                    <Spinner size="sm" animation="border" className="me-2" />
+                    <span className="text-muted">Cargando clientes...</span>
+                  </div>
+                ) : (
+                  <>
+                    <Form.Group className="mb-0">
+                      <Form.Label className="fw-semibold d-flex align-items-center gap-2" style={{ fontSize: 13 }}>
+                        <FaIdCard /> Seleccionar Cliente Registrado
+                      </Form.Label>
+                      <Form.Select
+                        value={clienteSeleccionado?.id || ""}
+                        onChange={handleSeleccionarClienteRtn}
+                        style={{ fontSize: 14 }}
+                      >
+                        <option value="">Seleccionar cliente con RTN...</option>
+                        {clientesConRtn.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.nombre} - {c.rtn}
+                          </option>
+                        ))}
+                      </Form.Select>
+                    </Form.Group>
+
+                    {clienteSeleccionado && (
+                      <div className="mt-3 p-3 rounded-3 border" style={{ background: "#fff" }}>
+                        <div className="fw-semibold mb-2" style={{ fontSize: 12, color: "#6c757d" }}>
+                          DATOS DEL CLIENTE
+                        </div>
+                        <div className="d-flex flex-column gap-1" style={{ fontSize: 13 }}>
+                          <div>
+                            <span className="text-muted">Nombre:</span>{" "}
+                            <span className="fw-semibold">{clienteSeleccionado.nombre}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted">RTN:</span>{" "}
+                            <span className="fw-semibold font-monospace">{clienteSeleccionado.rtn}</span>
+                          </div>
+                          {clienteSeleccionado.telefono && (
+                            <div>
+                              <span className="text-muted">Teléfono:</span>{" "}
+                              <span className="fw-semibold">{clienteSeleccionado.telefono}</span>
+                            </div>
+                          )}
+                          {clienteSeleccionado.direccion && (
+                            <div>
+                              <span className="text-muted">Dirección:</span>{" "}
+                              <span className="fw-semibold">{clienteSeleccionado.direccion}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {clientesConRtn.length === 0 && (
+                      <div className="text-center text-muted py-2" style={{ fontSize: 12 }}>
+                        No hay clientes con RTN registrados.
+                        <br />
+                        <span className="text-primary">Ve a Admin &gt; Clientes para agregar</span>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Método de pago */}
+          <div className="mb-0">
+            <div className="fw-bold mb-2" style={{ fontSize: 15 }}>Método de pago</div>
+            <MetodosPagos
+              total={totalCobro}
+              value={pagoState}
+              onChange={setPagoState}
+            />
+          </div>
+        </Modal.Body>
+
+        <Modal.Footer>
+          <Button
+            variant="outline-secondary"
+            onClick={() => setShowCobro(false)}
+            disabled={busyCobrar}
+          >
+            Cerrar
+          </Button>
+          <Button
+            variant="success"
+            onClick={cobrarEImprimir}
+            disabled={busyCobrar || !pagoState?.isValid || !cajaSesion?.id}
+          >
+            {busyCobrar ? "Cobrando..." : "Cobrar e imprimir"}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Overlays */}
       {busyCrear ? (
         <div
           className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
           style={{ background: "rgba(0,0,0,.25)", zIndex: 2000 }}
         >
-          <div className="bg-white rounded-4 shadow p-4 text-center" style={{ width: 320 }}>
+          <div
+            className="bg-white rounded-4 shadow p-4 text-center"
+            style={{ width: 320 }}
+          >
             <Spinner animation="border" className="mb-2" />
             <div className="fw-bold">Creando orden...</div>
             <div className="text-muted" style={{ fontSize: 12 }}>
               Guardando detalle y enviando a cocina.
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {busyCobrar ? (
+        <div
+          className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+          style={{ background: "rgba(0,0,0,.25)", zIndex: 2200 }}
+        >
+          <div
+            className="bg-white rounded-4 shadow p-4 text-center"
+            style={{ width: 340 }}
+          >
+            <Spinner animation="border" className="mb-2" />
+            <div className="fw-bold">Cobrando e imprimiendo...</div>
+            <div className="text-muted" style={{ fontSize: 12 }}>
+              Creando factura, registrando pagos y generando ticket 80mm.
             </div>
           </div>
         </div>

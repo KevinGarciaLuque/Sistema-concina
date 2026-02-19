@@ -69,6 +69,39 @@ export async function obtenerModificadoresDeProducto(productoId) {
   );
 }
 
+/* ==========================================
+   CRUD Opciones de Modificador
+========================================== */
+
+export async function obtenerOpciones(modificadorId, params = {}) {
+  const { data } = await api.get(`/modificadores/${modificadorId}/opciones`, { params });
+  return toArray(data);
+}
+
+export async function crearOpcion(modificadorId, body) {
+  const { data } = await api.post(`/modificadores/${modificadorId}/opciones`, body);
+  return data;
+}
+
+export async function actualizarOpcion(modificadorId, opcionId, body) {
+  const { data } = await api.put(`/modificadores/${modificadorId}/opciones/${opcionId}`, body);
+  return data;
+}
+
+export async function eliminarOpcion(modificadorId, opcionId) {
+  const { data } = await api.delete(`/modificadores/${modificadorId}/opciones/${opcionId}`);
+  return data;
+}
+
+export async function toggleOpcion(modificadorId, opcionId, activo) {
+  const { data } = await api.patch(`/modificadores/${modificadorId}/opciones/${opcionId}/activo`, { activo });
+  return data;
+}
+
+/* ==========================================
+   ✅ Modificadores por Producto
+========================================== */
+
 export async function guardarModificadoresDeProducto(
   productoId,
   modificadoresIds = [],

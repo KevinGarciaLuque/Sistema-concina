@@ -57,7 +57,6 @@ function getIO(req) {
 function emitOrden(req, payload) {
   const io = getIO(req);
   if (!io) return;
-  // ambos rooms para que POS y KDS se actualicen
   io.to("cocina").emit("ordenes:update", { ts: Date.now(), ...payload });
   io.to("caja").emit("ordenes:update", { ts: Date.now(), ...payload });
 }
@@ -77,19 +76,8 @@ async function bitacoraSafe(req, { accion, entidad, entidad_id = null, detalle =
   } catch {}
 }
 
-function formatDateYYYYMMDD(d) {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}${mm}${dd}`;
-}
-
 /* =========================================================
    GET /api/ordenes
-   query:
-   - estado, tipo
-   - from=YYYY-MM-DD, to=YYYY-MM-DD
-   - q (busca por codigo / cliente / mesa)
 ========================================================= */
 router.get(
   "/",
@@ -152,7 +140,6 @@ router.get(
 
 /* =========================================================
    GET /api/ordenes/kds
-   Lista rápida para cocina (NUEVA/EN_PREPARACION/LISTA)
 ========================================================= */
 router.get(
   "/kds",
@@ -180,7 +167,6 @@ router.get(
 
 /* =========================================================
    GET /api/ordenes/:id
-   Devuelve orden + detalle + opciones
 ========================================================= */
 router.get(
   "/:id",
@@ -249,7 +235,6 @@ router.get(
       opciones: opcionesByDetalle[d.id] || [],
     }));
 
-    // historial estados
     const [hRows] = await exec(
       `
       SELECT h.id, h.orden_id, h.estado, h.cambiado_por, u.nombre AS cambiado_por_nombre,
@@ -268,16 +253,8 @@ router.get(
 
 /* =========================================================
    POST /api/ordenes
-   body:
-   {
-     cliente_nombre, tipo, mesa, notas,
-     descuento, impuesto,
-     items: [
-       { producto_id, cantidad, notas, opciones:[{ opcion_id }, ...] }
-     ]
-   }
-   - Genera correlativo diario en orden_correlativo
-   - Guarda snapshot en detalle y opciones
+   - correlativo diario seguro en orden_correlativo
+   - evita UTC/local usando fecha del MySQL
 ========================================================= */
 router.post(
   "/",
@@ -304,7 +281,6 @@ router.post(
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     if (!items.length) return res.status(400).json({ ok: false, message: "La orden debe tener items." });
 
-    // normalizar items
     const cleanItems = items.map((it) => ({
       producto_id: Number(it?.producto_id),
       cantidad: Number(it?.cantidad ?? 1),
@@ -327,33 +303,35 @@ router.post(
     try {
       await conn.beginTransaction();
 
-      // fecha hoy (según servidor)
-      const now = new Date();
-      const yyyyMmDd = now.toISOString().slice(0, 10); // YYYY-MM-DD
-      const yyyymmdd = formatDateYYYYMMDD(now);
-
-      // correlativo diario: lock
-      const [cRows] = await cexec(
-        `SELECT ultimo_numero FROM orden_correlativo WHERE fecha = ? FOR UPDATE`,
-        [yyyyMmDd]
+      // ✅ fecha consistente tomada del MySQL (evita UTC/local)
+      const [[{ fecha, yyyymmdd }]] = await cexec(
+        `SELECT CURDATE() AS fecha, DATE_FORMAT(CURDATE(), '%Y%m%d') AS yyyymmdd`
       );
 
-      let ultimo = 0;
-      if (cRows.length) {
-        ultimo = Number(cRows[0].ultimo_numero || 0);
-      } else {
-        await cexec(`INSERT INTO orden_correlativo (fecha, ultimo_numero) VALUES (?, 0)`, [yyyyMmDd]);
-      }
+      // ✅ asegurar fila del día (requiere UNIQUE/PK en orden_correlativo.fecha)
+      await cexec(
+        `INSERT INTO orden_correlativo (fecha, ultimo_numero)
+         VALUES (?, 0)
+         ON DUPLICATE KEY UPDATE ultimo_numero = ultimo_numero`,
+        [fecha]
+      );
 
-      const numero_dia = ultimo + 1;
-      await cexec(`UPDATE orden_correlativo SET ultimo_numero = ? WHERE fecha = ?`, [numero_dia, yyyyMmDd]);
+      // ✅ incremento atómico + obtener número en la misma transacción
+      await cexec(
+        `UPDATE orden_correlativo
+         SET ultimo_numero = LAST_INSERT_ID(ultimo_numero + 1)
+         WHERE fecha = ?`,
+        [fecha]
+      );
 
-      const codigo = `ORD-${yyyymmdd}-${String(numero_dia).padStart(4, "0")}`; // <= 20 chars
+      const [[{ numero_dia }]] = await cexec(`SELECT LAST_INSERT_ID() AS numero_dia`);
+
+      const codigo = `ORD-${yyyymmdd}-${String(numero_dia).padStart(4, "0")}`;
 
       // cargar productos base de un solo golpe
       const prodIds = [...new Set(cleanItems.map((i) => i.producto_id))];
       const [pRows] = await cexec(
-        `SELECT id, nombre, precio, activo FROM productos WHERE id IN (${prodIds.map(() => "?").join(",")})`,
+        `SELECT id, nombre, precio, activo, tasa_impuesto FROM productos WHERE id IN (${prodIds.map(() => "?").join(",")})`,
         prodIds
       );
       const prodMap = new Map(pRows.map((p) => [Number(p.id), p]));
@@ -389,7 +367,9 @@ router.post(
         for (const oid of uniqueOpcionIds) {
           const o = opcionMap.get(oid);
           if (!o) throw Object.assign(new Error("Opción no existe"), { status: 409, message: `Opción ${oid} no existe.` });
-          if (Number(o.activo) !== 1) throw Object.assign(new Error("Opción inactiva"), { status: 409, message: `Opción ${o.nombre} está inactiva.` });
+          if (Number(o.activo) !== 1) {
+            throw Object.assign(new Error("Opción inactiva"), { status: 409, message: `Opción ${o.nombre} está inactiva.` });
+          }
         }
       }
 
@@ -430,6 +410,7 @@ router.post(
           cantidad: it.cantidad,
           notas: it.notas,
           total_linea,
+          tasa_impuesto: Number(p.tasa_impuesto || 15),
           opciones: opcionesComputed,
         });
       }
@@ -450,7 +431,7 @@ router.post(
           (?, ?, ?, ?, ?, ?, 'NUEVA', ?, ?, ?, ?, ?, ?)
         `,
         [
-          yyyyMmDd,
+          fecha,
           numero_dia,
           codigo,
           cliente_nombre,
@@ -472,9 +453,9 @@ router.post(
         const [rDet] = await cexec(
           `
           INSERT INTO orden_detalle
-            (orden_id, producto_id, producto_nombre, precio_unitario, cantidad, notas, total_linea)
+            (orden_id, producto_id, producto_nombre, precio_unitario, cantidad, notas, total_linea, tasa_impuesto)
           VALUES
-            (?, ?, ?, ?, ?, ?, ?)
+            (?, ?, ?, ?, ?, ?, ?, ?)
           `,
           [
             Number(ordenId),
@@ -484,6 +465,7 @@ router.post(
             Number(line.cantidad),
             line.notas,
             line.total_linea,
+            Number(line.tasa_impuesto || 15),
           ]
         );
 
@@ -528,6 +510,11 @@ router.post(
         await conn.rollback();
       } catch {}
 
+      // Si por alguna razón extrema chocara el unique, devolvemos 409 (más semántico)
+      if (String(e?.code || "").includes("ER_DUP_ENTRY")) {
+        return res.status(409).json({ ok: false, message: "Código de orden duplicado. Reintenta." });
+      }
+
       const status = e?.status || 500;
       const message = e?.message || "Error al crear orden.";
       return res.status(status).json({ ok: false, message });
@@ -539,9 +526,6 @@ router.post(
 
 /* =========================================================
    PATCH /api/ordenes/:id/estado
-   body: { estado, comentario? }
-   - cocina puede cambiar estados (EN_PREPARACION/LISTA)
-   - cajero/admin/supervisor: entregar / anular
 ========================================================= */
 router.patch(
   "/:id/estado",
@@ -561,12 +545,10 @@ router.patch(
 
     const orden = rows[0];
 
-    // reglas simples para no “revivir” una anulada
     if (orden.estado === "ANULADA" && nuevo !== "ANULADA") {
       return res.status(409).json({ ok: false, message: "No puedes cambiar una orden ANULADA." });
     }
 
-    // set asignado_cocina_por cuando entra a preparación por primera vez
     const uid = Number(req.user?.id ?? null);
     let setAsignado = "";
     const params = [nuevo];

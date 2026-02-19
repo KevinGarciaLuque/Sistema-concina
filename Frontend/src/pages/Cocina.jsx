@@ -35,7 +35,7 @@ function normalizeEstado(v) {
   if (["EN_PREPARACION", "EN PREPARACION", "PREPARANDO", "COCINANDO", "IN_PROGRESS"].includes(s)) return "EN_PREPARACION";
   if (["LISTA", "LISTO", "READY"].includes(s)) return "LISTA";
   if (["ENTREGADA", "ENTREGADO", "DELIVERED"].includes(s)) return "ENTREGADA";
-  if (["CANCELADA", "CANCELADO"].includes(s)) return "CANCELADA";
+  if (["ANULADA", "ANULADO", "CANCELADA", "CANCELADO"].includes(s)) return "ANULADA";
   return s || "NUEVA";
 }
 
@@ -164,8 +164,8 @@ export default function Cocina() {
         };
       });
 
-      // filtra canceladas/entregadas (KDS normalmente no las muestra)
-      const visible = normalized.filter((o) => !["CANCELADA", "ENTREGADA"].includes(o.estado));
+      // filtra anuladas/entregadas (KDS normalmente no las muestra)
+      const visible = normalized.filter((o) => !["ANULADA", "ENTREGADA"].includes(o.estado));
       setOrdenes(visible);
     } catch (e) {
       setOrdenes([]);

@@ -22,6 +22,12 @@ import facturasRoutes from "./routes/facturas.js";
 import reportesRoutes from "./routes/reportes.js";
 import rolesRoutes from "./routes/roles.js";
 import usuariosRoutes from "./routes/usuarios.js";
+import posRoutes from "./routes/pos.js";
+import caiRoutes from "./routes/cai.js";
+import clientesRoutes from "./routes/clientes.js";
+import backupRoutes from "./routes/backup.js";
+
+
 
 
 
@@ -113,11 +119,16 @@ app.use("/api/categorias", categoriasRoutes);
 app.use("/api/productos", productosRoutes);
 app.use("/api/modificadores", modificadoresRoutes);
 
+app.use("/api/clientes", clientesRoutes);
+
+app.use("/api/pos", posRoutes);
 app.use("/api/caja", cajaRoutes);
 app.use("/api/ordenes", ordenesRoutes);
 app.use("/api/cocina", cocinaRoutes);
 app.use("/api/facturas", facturasRoutes);
+app.use("/api/cai", caiRoutes);
 app.use("/api/reportes", reportesRoutes);
+app.use("/api/backup", backupRoutes);
 
 // ====== 404 ======
 app.use((req, res) => {

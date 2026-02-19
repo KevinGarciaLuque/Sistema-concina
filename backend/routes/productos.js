@@ -1,8 +1,8 @@
 import express from "express";
 import multer from "multer";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import * as dbMod from "../db.js";
 import * as authMod from "../middleware/auth.js";
@@ -435,7 +435,8 @@ router.put(
     const { id } = req.params;
     if (!isInt(id)) return res.status(400).json({ ok: false, message: "ID inválido." });
 
-    const ids = Array.isArray(req.body?.modificador_ids) ? req.body.modificador_ids : [];
+    const rawIds = req.body?.modificador_ids ?? req.body?.modificadores;
+    const ids = Array.isArray(rawIds) ? rawIds : [];
     const modIds = ids.map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0);
 
     const [p] = await exec(`SELECT id FROM productos WHERE id=?`, [Number(id)]);

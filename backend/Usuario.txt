@@ -1,1 +1,27 @@
 $2b$10$OTs2Qv6NdraxTaDNciQjxuHohnmnYnLHT5hPTQfk/CR/pjRmS7lOe
+
+
+
+admin
+admin123
+
+
+
+teminar procesos de la consola 
+
+Get-NetTCPConnection -LocalPort 4000 -State Listen | Select-Object -ExpandProperty OwningProcess
+
+
+& "$env:WINDIR\System32\tasklist.exe" /FI "PID eq Cambia el numero aqui"
+
+& "$env:WINDIR\System32\taskkill.exe" /PID 12052 /F
+
+
+Get-NetTCPConnection -LocalPort 4000 -State Listen
+
+
+node server.js
+
+
+
+

@@ -23,6 +23,7 @@ import {
   FaTimes,
 } from "react-icons/fa";
 import api from "../api";
+import { generarTicket80mmPDF } from "../utils/ticket80mm";
 
 /* ================= Helpers ================= */
 
@@ -135,7 +136,7 @@ export default function Facturas() {
 
     if (text) {
       list = list.filter((f) => {
-        const base = `${f.numero} ${f.cliente_nombre} ${f.rtn ?? ""} ${f.metodo_pago ?? ""}`.toLowerCase();
+        const base = `${f.numero_factura} ${f.cliente_nombre} ${f.rtn ?? ""} ${f.metodo_pago ?? ""}`.toLowerCase();
         return base.includes(text);
       });
     }
@@ -178,18 +179,38 @@ export default function Facturas() {
     }
   };
 
-  // ✅ REIMPRIMIR (placeholder)
+  // ✅ REIMPRIMIR
   const reimprimir = async (factura) => {
-    setMsg({
-      type: "info",
-      text: `🖨️ Reimprimir ${factura.numero} (aquí conectamos tu generarReciboPDF con COPIA).`,
-    });
+    setMsg({ type: "", text: "" });
+    
+    try {
+      // Traer data completa del ticket (factura + pagos + items + opciones)
+      const r = await api.get(`/facturas/${factura.id}/recibo`);
+      const recibo = r?.data?.data;
+
+      if (!recibo?.factura) {
+        throw new Error("No se pudo obtener los datos de la factura");
+      }
+
+      // Generar ticket 80mm
+      generarTicket80mmPDF(recibo);
+
+      setMsg({
+        type: "success",
+        text: `✅ Factura ${factura.numero_factura || factura.id} impresa correctamente.`,
+      });
+    } catch (e) {
+      setMsg({
+        type: "danger",
+        text: e?.response?.data?.message || e?.message || "No se pudo imprimir la factura.",
+      });
+    }
   };
 
   // ✅ EXPORT CSV
   const exportarCSV = () => {
     const rows = filtradas.map((f) => ({
-      numero: f.numero,
+      numero: f.numero_factura,
       fecha: fmtDateTime(f.fecha),
       cliente: f.cliente_nombre,
       rtn: f.rtn || "",
@@ -345,7 +366,7 @@ export default function Facturas() {
                     filtradas.map((f) => (
                       <tr key={f.id}>
                         <td className="fw-bold">
-                          {f.numero}{" "}
+                          {f.numero_factura}{" "}
                           {f.es_copia ? <Badge bg="warning" text="dark" className="ms-2">COPIA</Badge> : null}
                         </td>
                         <td className="text-muted" style={{ fontSize: 12 }}>{fmtDateTime(f.fecha)}</td>
@@ -389,9 +410,9 @@ export default function Facturas() {
         <Modal.Header closeButton>
           <Modal.Title className="fw-bold">
             Detalle{" "}
-            {facturaSel?.numero ? (
+            {facturaSel?.numero_factura ? (
               <>
-                <Badge bg="dark" className="ms-2">{facturaSel.numero}</Badge>
+                <Badge bg="dark" className="ms-2">{facturaSel.numero_factura}</Badge>
                 {facturaSel.es_copia ? <Badge bg="warning" text="dark" className="ms-2">COPIA</Badge> : null}
               </>
             ) : null}
