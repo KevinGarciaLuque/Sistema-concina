@@ -11,8 +11,9 @@ import {
   Row,
   Spinner,
   Modal,
+  Nav,
 } from "react-bootstrap";
-import { FaShoppingCart, FaSyncAlt, FaUserTag, FaIdCard } from "react-icons/fa";
+import { FaShoppingCart, FaSyncAlt, FaUserTag, FaIdCard, FaPaperPlane, FaClock } from "react-icons/fa";
 import api from "../../api";
 import { socket } from "../../socket";
 
@@ -20,6 +21,7 @@ import CatalogoProductos from "./components/CatalogoProductos";
 import CarritoPOS from "./components/CarritoPOS";
 import CheckoutPanel from "./components/CheckoutPanel";
 import ModalModificadores from "./components/ModalModificadores";
+import OrdenesPendientesCobro from "./components/OrdenesPendientesCobro";
 
 // ✅ NUEVO (módulo 1)
 import MetodosPagos from "./components/MetodosPagos";
@@ -76,6 +78,7 @@ export default function Pos() {
   const [msg, setMsg] = useState({ type: "", text: "" });
   const [busyCrear, setBusyCrear] = useState(false);
   const [showCartMobile, setShowCartMobile] = useState(false);
+  const [showCheckout, setShowCheckout] = useState(false);
 
   // ===== modal modificadores =====
   const [showMods, setShowMods] = useState(false);
@@ -120,6 +123,11 @@ export default function Pos() {
   const [loadingClientesRtn, setLoadingClientesRtn] = useState(false);
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
   const [usarClienteRtn, setUsarClienteRtn] = useState(false);
+
+  // ✅ NUEVO: órdenes pendientes de cobro
+  const [vistaActual, setVistaActual] = useState("nueva-venta"); // "nueva-venta" | "pendientes-cobro"
+  const [ordenesPendientes, setOrdenesPendientes] = useState([]);
+  const [loadingPendientes, setLoadingPendientes] = useState(false);
 
   // ===== load categorías/productos =====
   const loadCategorias = async () => {
@@ -180,10 +188,15 @@ export default function Pos() {
   useEffect(() => {
     if (!socket?.on) return;
     const onCatalog = () => loadProductos();
+    const onOrdenes = () => loadOrdenesPendientes();
     socket.on("catalogo:update", onCatalog);
+    socket.on("ordenes:update", onOrdenes);
+    socket.on("cocina:update", onOrdenes);
     return () => {
       try {
         socket.off("catalogo:update", onCatalog);
+        socket.off("ordenes:update", onOrdenes);
+        socket.off("cocina:update", onOrdenes);
       } catch {}
     };
   }, []); // eslint-disable-line
@@ -201,7 +214,29 @@ export default function Pos() {
 
   useEffect(() => {
     loadCajaActiva();
+    loadOrdenesPendientes();
   }, []);
+
+  // ✅ NUEVO: cargar órdenes pendientes de cobro
+  const loadOrdenesPendientes = async () => {
+    setLoadingPendientes(true);
+    try {
+      // Cargar órdenes que no han sido facturadas aún
+      const { data } = await api.get("/ordenes", {
+        params: {
+          pendiente_cobro: 1,
+          limit: 100,
+        },
+      });
+      const rows = data?.rows || data?.data || data || [];
+      setOrdenesPendientes(Array.isArray(rows) ? rows : []);
+    } catch (e) {
+      console.error("Error cargando órdenes pendientes:", e);
+      setOrdenesPendientes([]);
+    } finally {
+      setLoadingPendientes(false);
+    }
+  };
 
   // ===== carrito actions =====
   const inc = (id) =>
@@ -292,19 +327,49 @@ export default function Pos() {
   const confirmarMods = ({ producto, opcionesElegidas }) => {
     setCarrito((prev) => {
       if (editItemId) {
+        // Modo edición: actualizar opciones del item existente
         return prev.map((it) =>
           it.id === editItemId ? { ...it, opciones: opcionesElegidas } : it,
         );
       }
+
+      // Modo agregar: buscar si ya existe el mismo producto con las mismas opciones
+      const productoId = Number(producto.id);
+      const precioUnit = Number(producto.precio ?? producto.precio_unitario ?? 0);
+
+      // Función para comparar opciones
+      const sonOpcionesIguales = (ops1, ops2) => {
+        if (ops1.length !== ops2.length) return false;
+        const ids1 = ops1.map(o => Number(o.opcion_id)).sort();
+        const ids2 = ops2.map(o => Number(o.opcion_id)).sort();
+        return ids1.every((id, idx) => id === ids2[idx]);
+      };
+
+      // Buscar item existente con mismo producto y opciones
+      const itemExistente = prev.find(
+        (it) =>
+          Number(it.producto_id) === productoId &&
+          Number(it.precio_unitario) === precioUnit &&
+          sonOpcionesIguales(it.opciones || [], opcionesElegidas)
+      );
+
+      if (itemExistente) {
+        // Si existe, incrementar cantidad
+        return prev.map((it) =>
+          it.id === itemExistente.id
+            ? { ...it, cantidad: Number(it.cantidad) + 1 }
+            : it
+        );
+      }
+
+      // Si no existe, agregar nuevo item
       return [
         ...prev,
         {
           id: uid(),
-          producto_id: Number(producto.id),
+          producto_id: productoId,
           producto_nombre: String(producto.nombre),
-          precio_unitario: Number(
-            producto.precio ?? producto.precio_unitario ?? 0,
-          ),
+          precio_unitario: precioUnit,
           cantidad: 1,
           notas: "",
           opciones: opcionesElegidas,
@@ -315,7 +380,32 @@ export default function Pos() {
     setShowMods(false);
     setModsProducto(null);
     setEditItemId(null);
-    setShowCartMobile(true);
+  };
+
+  const handleFinalizarOrden = () => {
+    if (carrito.length === 0) {
+      setMsg({ type: "warning", text: "Agrega productos al carrito primero." });
+      return;
+    }
+    setShowCheckout(true);
+  };
+
+  const handleCobrarAhora = () => {
+    setShowCheckout(false);
+    setShowCobro(true);
+  };
+
+  const handleCobrarDespues = () => {
+    setShowCheckout(false);
+    setOrdenCreada(null);
+    setMsg({ type: "info", text: "Puedes cobrar esta orden desde el módulo de Facturas." });
+  };
+
+  const handleCloseCheckout = () => {
+    setShowCheckout(false);
+    if (ordenCreada) {
+      setOrdenCreada(null);
+    }
   };
 
   // ===== crear orden =====
@@ -387,13 +477,13 @@ export default function Pos() {
       });
 
       setShowCartMobile(false);
+      // NO cerrar el modal - dejar que usuario elija con botones
 
-      // ✅ abrir cobro (módulo 1)
+      // NO abrimos cobro automáticamente - usuario decide con botones
       await loadCajaActiva();
       setPagoState(null);
       setUsarClienteRtn(false);
       setClienteSeleccionado(null);
-      setShowCobro(true);
     } catch (e) {
       setMsg({
         type: "danger",
@@ -468,6 +558,9 @@ export default function Pos() {
       setVentaDraft(null);
       setOrdenCreada(null);
 
+      // ✅ NUEVO: Recargar órdenes pendientes después de cobrar
+      await loadOrdenesPendientes();
+
       setMsg({
         type: "success",
         text: `✅ Venta cobrada e impresa. Factura: ${numeroFactura || facturaId}`,
@@ -517,6 +610,38 @@ export default function Pos() {
     setClienteSeleccionado(cliente || null);
   };
 
+  // ✅ NUEVO: cobrar orden pendiente
+  const handleCobrarOrdenPendiente = async (orden) => {
+    try {
+      // Usar directamente los datos de la orden que ya tenemos
+      // La tabla ya incluye todos los campos necesarios
+      setVentaDraft({
+        orden: {
+          id: orden.id,
+          codigo: orden.codigo,
+        },
+        cliente_nombre: orden.cliente_nombre || null,
+        subtotal: Number(orden.subtotal || 0),
+        descuento: Number(orden.descuento || 0),
+        impuesto: Number(orden.impuesto || 0),
+        total: Number(orden.total || 0),
+      });
+
+      // Resetear estados de pago
+      setPagoState(null);
+      setUsarClienteRtn(false);
+      setClienteSeleccionado(null);
+
+      // Abrir modal de cobro
+      setShowCobro(true);
+    } catch (e) {
+      setMsg({
+        type: "danger",
+        text: e?.response?.data?.message || "No se pudo cargar la orden.",
+      });
+    }
+  };
+
   return (
     <Container fluid className="py-3">
       <Row className="align-items-center g-2 mb-2">
@@ -550,11 +675,17 @@ export default function Pos() {
         <Col xs="auto" className="d-none d-lg-flex">
           <Button
             variant="outline-primary"
-            onClick={refreshAll}
+            onClick={() => {
+              if (vistaActual === "nueva-venta") {
+                refreshAll();
+              } else {
+                loadOrdenesPendientes();
+              }
+            }}
             className="d-inline-flex align-items-center gap-2"
-            disabled={loadingCat || loadingProd}
+            disabled={loadingCat || loadingProd || loadingPendientes}
           >
-            <FaSyncAlt />
+            <FaSyncAlt className={loadingPendientes ? "fa-spin" : ""} />
             Actualizar
           </Button>
         </Col>
@@ -580,58 +711,91 @@ export default function Pos() {
         </Alert>
       ) : null}
 
-      <Row className="g-3">
-        <Col lg={8}>
-          <CatalogoProductos
-            loadingCat={loadingCat}
-            loadingProd={loadingProd}
-            categorias={categorias}
-            productos={productos}
-            categoriaId={categoriaId}
-            setCategoriaId={setCategoriaId}
-            q={q}
-            setQ={setQ}
-            onAdd={addProducto}
-          />
-        </Col>
+      {/* ✅ NUEVO: Tabs para cambiar entre nueva venta y órdenes pendientes */}
+      <Nav variant="tabs" className="mb-3">
+        <Nav.Item>
+          <Nav.Link
+            active={vistaActual === "nueva-venta"}
+            onClick={() => setVistaActual("nueva-venta")}
+            className="d-inline-flex align-items-center gap-2"
+          >
+            <FaShoppingCart size={14} />
+            Nueva Venta
+          </Nav.Link>
+        </Nav.Item>
+        <Nav.Item>
+          <Nav.Link
+            active={vistaActual === "pendientes-cobro"}
+            onClick={() => {
+              setVistaActual("pendientes-cobro");
+              loadOrdenesPendientes();
+            }}
+            className="d-inline-flex align-items-center gap-2"
+          >
+            <FaClock size={14} />
+            Órdenes Pendientes
+            {ordenesPendientes.length > 0 && (
+              <Badge bg="warning" text="dark">
+                {ordenesPendientes.length}
+              </Badge>
+            )}
+          </Nav.Link>
+        </Nav.Item>
+      </Nav>
 
-        <Col lg={4} className="d-none d-lg-block">
-          <div className="position-sticky" style={{ top: 88 }}>
-            <CarritoPOS
-              carrito={carrito}
-              inc={inc}
-              dec={dec}
-              remove={remove}
-              setQty={setQty}
-              setNotasItem={setNotasItem}
-              onEditItem={editItem}
+      {/* Vista de Nueva Venta */}
+      {vistaActual === "nueva-venta" && (
+        <Row className="g-3">
+          <Col lg={8}>
+            <CatalogoProductos
+              loadingCat={loadingCat}
+              loadingProd={loadingProd}
+              categorias={categorias}
+              productos={productos}
+              categoriaId={categoriaId}
+              setCategoriaId={setCategoriaId}
+              q={q}
+              setQ={setQ}
+              onAdd={addProducto}
             />
+          </Col>
 
-            <div className="mt-3">
-              <CheckoutPanel
-                tipo={tipo}
-                setTipo={setTipo}
-                mesa={mesa}
-                setMesa={setMesa}
-                clienteNombre={clienteNombre}
-                setClienteNombre={setClienteNombre}
-                notasOrden={notasOrden}
-                setNotasOrden={setNotasOrden}
-                descuento={descuento}
-                setDescuento={setDescuento}
-                impuesto={impuesto}
-                setImpuesto={setImpuesto}
-                subtotal={subtotal}
-                total={total}
-                carritoCount={carrito.length}
-                busyCrear={busyCrear}
-                onCrearOrden={crearOrden}
-                ordenCreada={ordenCreada}
+          <Col lg={4} className="d-none d-lg-block">
+            <div className="position-sticky" style={{ top: 88 }}>
+              <CarritoPOS
+                carrito={carrito}
+                inc={inc}
+                dec={dec}
+                remove={remove}
+                setQty={setQty}
+                setNotasItem={setNotasItem}
+                onEditItem={editItem}
               />
+
+              {/* Botón para finalizar orden */}
+              <Button
+                className="w-100 mt-3 shadow-lg"
+                variant="success"
+                size="lg"
+                onClick={handleFinalizarOrden}
+                disabled={carrito.length === 0}
+              >
+                <FaPaperPlane className="me-2" />
+                Finalizar Orden
+              </Button>
             </div>
-          </div>
-        </Col>
-      </Row>
+          </Col>
+        </Row>
+      )}
+
+      {/* Vista de Órdenes Pendientes de Cobro */}
+      {vistaActual === "pendientes-cobro" && (
+        <OrdenesPendientesCobro
+          ordenes={ordenesPendientes}
+          loading={loadingPendientes}
+          onCobrar={handleCobrarOrdenPendiente}
+        />
+      )}
 
       <Offcanvas
         show={showCartMobile}
@@ -657,28 +821,19 @@ export default function Pos() {
             onEditItem={editItem}
           />
 
-          <div className="mt-3">
-            <CheckoutPanel
-              tipo={tipo}
-              setTipo={setTipo}
-              mesa={mesa}
-              setMesa={setMesa}
-              clienteNombre={clienteNombre}
-              setClienteNombre={setClienteNombre}
-              notasOrden={notasOrden}
-              setNotasOrden={setNotasOrden}
-              descuento={descuento}
-              setDescuento={setDescuento}
-              impuesto={impuesto}
-              setImpuesto={setImpuesto}
-              subtotal={subtotal}
-              total={total}
-              carritoCount={carrito.length}
-              busyCrear={busyCrear}
-              onCrearOrden={crearOrden}
-              ordenCreada={ordenCreada}
-            />
-          </div>
+          <Button
+            className="w-100 mt-3"
+            variant="success"
+            size="lg"
+            onClick={() => {
+              setShowCartMobile(false);
+              handleFinalizarOrden();
+            }}
+            disabled={carrito.length === 0}
+          >
+            <FaPaperPlane className="me-2" />
+            Finalizar Orden
+          </Button>
         </Offcanvas.Body>
       </Offcanvas>
 
@@ -887,6 +1042,37 @@ export default function Pos() {
           </div>
         </div>
       ) : null}
+
+      {/* Modal para finalizar orden */}
+      <Modal show={showCheckout} onHide={handleCloseCheckout} size="lg" centered>
+        <Modal.Header closeButton>
+          <Modal.Title className="fw-bold">Finalizar Orden</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <CheckoutPanel
+            tipo={tipo}
+            setTipo={setTipo}
+            mesa={mesa}
+            setMesa={setMesa}
+            clienteNombre={clienteNombre}
+            setClienteNombre={setClienteNombre}
+            notasOrden={notasOrden}
+            setNotasOrden={setNotasOrden}
+            descuento={descuento}
+            setDescuento={setDescuento}
+            impuesto={impuesto}
+            setImpuesto={setImpuesto}
+            subtotal={subtotal}
+            total={total}
+            carritoCount={carrito.length}
+            busyCrear={busyCrear}
+            onCrearOrden={crearOrden}
+            ordenCreada={ordenCreada}
+            onCobrarAhora={handleCobrarAhora}
+            onCobrarDespues={handleCobrarDespues}
+          />
+        </Modal.Body>
+      </Modal>
     </Container>
   );
 }

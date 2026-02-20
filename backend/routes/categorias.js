@@ -57,7 +57,7 @@ function emitCatalogo(req) {
 router.get(
   "/",
   requireAuth,
-  allowRoles("admin", "supervisor", "cajero", "cocina"),
+  allowRoles("admin", "supervisor", "cajero", "cocina", "mesero"),
   asyncHandler(async (req, res) => {
     const { activo } = req.query;
 

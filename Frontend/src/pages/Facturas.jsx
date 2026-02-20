@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Dropdown } from "react-bootstrap";
 import {
   Alert,
   Badge,
@@ -19,6 +20,7 @@ import {
   FaSearch,
   FaEye,
   FaPrint,
+  FaEllipsisV,
   FaDownload,
   FaTimes,
 } from "react-icons/fa";
@@ -327,83 +329,132 @@ export default function Facturas() {
       </Card>
 
       {/* Listado */}
-      {loading ? (
-        <Card className="shadow-sm border-0 rounded-4">
-          <Card.Body className="py-5 text-center text-muted">
-            <Spinner animation="border" className="me-2" />
-            Cargando facturas...
-          </Card.Body>
-        </Card>
-      ) : (
-        <Card className="shadow-sm border-0 rounded-4">
-          <Card.Body>
-            <div className="text-muted mb-2" style={{ fontSize: 12 }}>
-              Mostrando <b>{filtradas.length}</b> factura(s)
-            </div>
+{loading ? (
+  <Card className="shadow-sm border-0 rounded-4 w-100 overflow-hidden">
+    <Card.Body className="py-5 text-center text-muted">
+      <div className="d-flex align-items-center justify-content-center gap-2">
+        <Spinner animation="border" role="status" />
+        <span className="fw-semibold">Cargando facturas…</span>
+      </div>
+    </Card.Body>
+  </Card>
+) : (
+  <Card className="shadow-sm border-0 rounded-4 w-100 overflow-hidden">
+    <Card.Body className="p-0">
+      <div className="px-3 pt-3 pb-2">
+        <div className="text-muted" style={{ fontSize: 12 }}>
+          Mostrando <b>{filtradas.length}</b> factura(s)
+        </div>
+      </div>
 
-            <div style={{ maxHeight: "70vh", overflow: "auto" }}>
-              <Table responsive hover className="mb-0 align-middle">
-                <thead style={{ position: "sticky", top: 0, zIndex: 1, background: "white" }}>
-                  <tr>
-                    <th style={{ minWidth: 170 }}>Número</th>
-                    <th style={{ minWidth: 180 }}>Fecha</th>
-                    <th style={{ minWidth: 240 }}>Cliente</th>
-                    <th style={{ minWidth: 160 }}>RTN</th>
-                    <th style={{ minWidth: 160 }}>Método</th>
-                    <th style={{ minWidth: 130 }} className="text-end">Total</th>
-                    <th style={{ minWidth: 260 }} className="text-end">Acciones</th>
-                  </tr>
-                </thead>
+      {/* ✅ Scroll vertical SÍ / horizontal NO / FULL ancho */}
+      <div
+        className="w-100 overflow-y-auto overflow-x-hidden"
+        style={{ maxHeight: "70vh" }}
+      >
+        <Table hover size="sm" className="mb-0 align-middle w-100">
+          <thead className="table-light sticky-top">
+            <tr className="small text-uppercase">
+              <th className="text-nowrap">Número</th>
+              <th className="text-nowrap">Fecha</th>
+              <th>Cliente</th>
+              <th className="text-nowrap">RTN</th>
+              <th className="text-nowrap">Método</th>
+              <th className="text-nowrap text-end">Total</th>
+              <th className="text-nowrap text-end">Acciones</th>
+            </tr>
+          </thead>
 
-                <tbody>
-                  {filtradas.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="text-muted py-4">
-                        No hay facturas con esos filtros.
-                      </td>
-                    </tr>
-                  ) : (
-                    filtradas.map((f) => (
-                      <tr key={f.id}>
-                        <td className="fw-bold">
-                          {f.numero_factura}{" "}
-                          {f.es_copia ? <Badge bg="warning" text="dark" className="ms-2">COPIA</Badge> : null}
-                        </td>
-                        <td className="text-muted" style={{ fontSize: 12 }}>{fmtDateTime(f.fecha)}</td>
-                        <td className="fw-semibold">{f.cliente_nombre}</td>
-                        <td className="text-muted">{f.rtn || "—"}</td>
-                        <td>{f.metodo_pago ? <Badge bg="dark">{f.metodo_pago}</Badge> : "—"}</td>
-                        <td className="text-end fw-bold">{money(f.total)}</td>
-                        <td className="text-end">
-                          <div className="d-inline-flex gap-2 flex-wrap justify-content-end">
-                            <Button
-                              size="sm"
-                              variant="outline-dark"
-                              className="d-inline-flex align-items-center gap-2"
-                              onClick={() => openDetalle(f)}
-                            >
-                              <FaEye /> Ver
-                            </Button>
+          <tbody>
+            {filtradas.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="text-muted py-4 text-center">
+                  No hay facturas con esos filtros.
+                </td>
+              </tr>
+            ) : (
+              filtradas.map((f) => (
+                <tr key={f.id} className="small">
+                  <td className="fw-bold text-nowrap">
+                    {f.numero_factura}
+                    {f.es_copia ? (
+                      <Badge bg="warning" text="dark" className="ms-2">
+                        COPIA
+                      </Badge>
+                    ) : null}
+                  </td>
 
-                            <Button
-                              size="sm"
-                              variant="dark"
-                              className="d-inline-flex align-items-center gap-2"
-                              onClick={() => reimprimir(f)}
-                            >
-                              <FaPrint /> Reimprimir
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </Table>
-            </div>
-          </Card.Body>
-        </Card>
-      )}
+                  <td className="text-muted">
+                    <span
+                      className="d-inline-block text-truncate"
+                      style={{ maxWidth: 160 }}
+                      title={fmtDateTime(f.fecha)}
+                    >
+                      {fmtDateTime(f.fecha)}
+                    </span>
+                  </td>
+
+                  <td className="fw-semibold">
+                    <span
+                      className="d-inline-block text-truncate"
+                      style={{ maxWidth: 260 }}
+                      title={f.cliente_nombre}
+                    >
+                      {f.cliente_nombre}
+                    </span>
+                  </td>
+
+                  <td className="text-muted text-nowrap">{f.rtn || "—"}</td>
+
+                  <td className="text-nowrap">
+                    {f.metodo_pago ? (
+                      <Badge bg="dark" className="small">
+                        {f.metodo_pago}
+                      </Badge>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+
+                  <td className="text-end fw-bold text-nowrap">{money(f.total)}</td>
+
+                  <td className="text-end text-nowrap">
+                    <Dropdown align="end">
+                      <Dropdown.Toggle
+                        size="sm"
+                        variant="outline-dark"
+                        className="d-inline-flex align-items-center gap-2"
+                      >
+                        <FaEllipsisV />
+                        Acciones
+                      </Dropdown.Toggle>
+
+                      <Dropdown.Menu>
+                        <Dropdown.Item
+                          className="d-flex align-items-center gap-2"
+                          onClick={() => openDetalle(f)}
+                        >
+                          <FaEye /> Ver
+                        </Dropdown.Item>
+
+                        <Dropdown.Item
+                          className="d-flex align-items-center gap-2"
+                          onClick={() => reimprimir(f)}
+                        >
+                          <FaPrint /> Reimprimir
+                        </Dropdown.Item>
+                      </Dropdown.Menu>
+                    </Dropdown>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </Table>
+      </div>
+    </Card.Body>
+  </Card>
+)}
 
       {/* Modal Detalle */}
       <Modal show={showDetalle} onHide={() => setShowDetalle(false)} size="lg" centered>

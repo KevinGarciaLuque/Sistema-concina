@@ -84,19 +84,43 @@ router.get(
   requireAuth,
   allowRoles("admin", "supervisor", "cajero", "cocina"),
   asyncHandler(async (req, res) => {
-    const { estado, tipo, from, to, q } = req.query;
+    const { estado, tipo, from, to, q, pendiente_cobro, sin_facturar } = req.query;
 
     const where = [];
     const params = [];
 
-    if (estado && ESTADOS.has(String(estado))) {
-      where.push("o.estado = ?");
-      params.push(String(estado));
-    }
+    // ✅ NUEVO: Filtro especial para órdenes pendientes de cobro
+    const esPendienteCobro = pendiente_cobro === "1" || pendiente_cobro === "true";
+    const soloSinFacturar = sin_facturar === "1" || sin_facturar === "true";
 
-    if (tipo && TIPOS.has(String(tipo))) {
-      where.push("o.tipo = ?");
-      params.push(String(tipo));
+    if (esPendienteCobro) {
+      // Filtrar órdenes sin factura (cualquier tipo) que estén LISTA o ENTREGADA
+      where.push("o.estado IN ('LISTA', 'ENTREGADA')");
+      where.push("f.id IS NULL"); // Sin factura asociada
+    } else {
+      // ✅ NUEVO: Filtro genérico para excluir órdenes ya facturadas
+      if (soloSinFacturar) {
+        where.push("f.id IS NULL");
+      }
+      
+      // Filtros normales
+      if (estado) {
+        // Soportar múltiples estados separados por coma
+        const estadosArray = String(estado).split(',').map(e => e.trim()).filter(e => ESTADOS.has(e));
+        if (estadosArray.length === 1) {
+          where.push("o.estado = ?");
+          params.push(estadosArray[0]);
+        } else if (estadosArray.length > 1) {
+          const placeholders = estadosArray.map(() => '?').join(',');
+          where.push(`o.estado IN (${placeholders})`);
+          params.push(...estadosArray);
+        }
+      }
+
+      if (tipo && TIPOS.has(String(tipo))) {
+        where.push("o.tipo = ?");
+        params.push(String(tipo));
+      }
     }
 
     if (from) {
@@ -119,14 +143,27 @@ router.get(
       SELECT
         o.id, o.fecha, o.numero_dia, o.codigo,
         o.cliente_nombre, o.tipo, o.mesa, o.estado, o.notas,
-        o.creado_por, u1.nombre AS creado_por_nombre,
+        o.creado_por, u1.nombre AS creado_por_nombre, u1.nombre AS mesero_nombre,
         o.asignado_cocina_por, u2.nombre AS asignado_cocina_por_nombre,
         o.subtotal, o.descuento, o.impuesto, o.total,
         o.created_at, o.updated_at,
-        (SELECT COUNT(*) FROM orden_detalle od WHERE od.orden_id = o.id) AS items_count
+        (SELECT COUNT(*) FROM orden_detalle od WHERE od.orden_id = o.id) AS items_count,
+        (SELECT JSON_ARRAYAGG(
+          JSON_OBJECT(
+            'id', od.id,
+            'producto_id', od.producto_id,
+            'producto_nombre', od.producto_nombre,
+            'cantidad', od.cantidad,
+            'precio_unitario', od.precio_unitario
+          )
+        )
+        FROM orden_detalle od
+        WHERE od.orden_id = o.id
+        ) AS productos
       FROM ordenes o
       LEFT JOIN usuarios u1 ON u1.id = o.creado_por
       LEFT JOIN usuarios u2 ON u2.id = o.asignado_cocina_por
+      LEFT JOIN facturas f ON f.orden_id = o.id
       ${where.length ? "WHERE " + where.join(" AND ") : ""}
       ORDER BY o.id DESC
       LIMIT 300
@@ -134,7 +171,13 @@ router.get(
       params
     );
 
-    res.json({ ok: true, data: rows });
+    // Parsear productos desde JSON string
+    const rowsWithProducts = rows.map(row => ({
+      ...row,
+      productos: row.productos ? JSON.parse(row.productos) : []
+    }));
+
+    res.json({ ok: true, data: rowsWithProducts });
   })
 );
 

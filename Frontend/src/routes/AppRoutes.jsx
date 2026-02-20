@@ -11,6 +11,7 @@ import Ordenes from "../pages/Ordenes";
 import Caja from "../pages/Caja";
 import Facturas from "../pages/Facturas";
 import Bitacora from "../pages/Bitacora";
+import Mesero from "../pages/Mesero/Mesero";
 
 // Admin
 import Admin from "../pages/admin/Admin";
@@ -55,6 +56,15 @@ export default function AppRoutes() {
           element={
             <ProtectedRoute permiso="POS.USAR">
               <Pos />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/mesero"
+          element={
+            <ProtectedRoute permiso="MESERO.USAR">
+              <Mesero />
             </ProtectedRoute>
           }
         />

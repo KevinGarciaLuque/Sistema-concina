@@ -13,6 +13,23 @@ const round2 = (v) => Math.round(num(v) * 100) / 100;
 const padLeft = (v, len) => String(v ?? "").padStart(len, "0");
 const onlyDigits = (v) => String(v ?? "").replace(/\D/g, "");
 
+// Helpers para socket.io
+function getIO(req) {
+  try {
+    return req.app.get("io") || null;
+  } catch {
+    return null;
+  }
+}
+
+function emitOrden(req, payload) {
+  const io = getIO(req);
+  if (!io) return;
+  io.to("cocina").emit("ordenes:update", { ts: Date.now(), ...payload });
+  io.to("caja").emit("ordenes:update", { ts: Date.now(), ...payload });
+  io.emit("ordenes:update", { ts: Date.now(), ...payload });
+}
+
 /**
  * Formato fiscal:
  *   establecimiento(3)-punto_emision(3)-tipo_documento(2)-correlativo(8)
@@ -266,6 +283,9 @@ router.post("/cobrar", async (req, res) => {
     }
 
     await conn.commit();
+
+    // Emitir evento de actualización para que se actualicen las vistas en tiempo real
+    emitOrden(req, { orden_id, factura_id: facturaId, evento: "cobrada" });
 
     return res.json({
       ok: true,

@@ -1,4 +1,4 @@
-import { Button, Card, Form, Table } from "react-bootstrap";
+import { Button, Card, Form } from "react-bootstrap";
 import { FaMinus, FaPlus, FaTrash, FaPen } from "react-icons/fa";
 
 function money(n) {
@@ -38,47 +38,46 @@ export default function CarritoPOS({
         {carrito.length === 0 ? (
           <div className="text-muted">Tu carrito está vacío.</div>
         ) : (
-          <Table responsive className="mb-0 align-middle">
-            <thead>
-              <tr>
-                <th>Producto</th>
-                <th style={{ width: 160 }}>Cantidad</th>
-                <th className="text-end">Total</th>
-                <th className="text-end" style={{ width: 140 }}>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {carrito.map((it) => (
-                <tr key={it.id}>
-                  <td>
-                    <div className="fw-semibold">{it.producto_nombre}</div>
-                    <div className="text-muted" style={{ fontSize: 12 }}>
-                      Unit: {money(it.precio_unitario)}{" "}
-                      {(it.opciones || []).length ? (
-                        <>· +Extras: {money((it.opciones || []).reduce((a, o) => a + Number(o.precio_extra || 0), 0))}</>
-                      ) : null}
-                    </div>
-
-                    {(it.opciones || []).length ? (
-                      <div className="mt-1">
-                        {(it.opciones || []).map((o, idx) => (
-                          <span key={`${it.id}_${idx}`} className="badge text-bg-light me-1">
-                            {o.opcion_nombre} (+{money(o.precio_extra).replace("L ", "")})
-                          </span>
-                        ))}
+          <div style={{ overflowX: "hidden", overflowY: "auto", maxHeight: "calc(100vh - 350px)" }}>
+            {carrito.map((it) => (
+              <Card key={it.id} className="mb-2 border shadow-sm">
+                <Card.Body className="p-3">
+                  <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
+                    <div className="flex-grow-1" style={{ minWidth: 0 }}>
+                      <div className="fw-semibold" style={{ wordBreak: "break-word" }}>
+                        {it.producto_nombre}
                       </div>
-                    ) : null}
+                      <div className="text-muted" style={{ fontSize: 12 }}>
+                        Unit: {money(it.precio_unitario)}{" "}
+                        {(it.opciones || []).length ? (
+                          <>· Extras: +{money((it.opciones || []).reduce((a, o) => a + Number(o.precio_extra || 0), 0))}</>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="fw-bold text-end" style={{ whiteSpace: "nowrap" }}>
+                      {money(lineTotal(it))}
+                    </div>
+                  </div>
 
-                    <Form.Control
-                      className="mt-2"
-                      size="sm"
-                      placeholder="Notas del item (opcional)"
-                      value={it.notas || ""}
-                      onChange={(e) => setNotasItem(it.id, e.target.value)}
-                    />
-                  </td>
+                  {(it.opciones || []).length ? (
+                    <div className="mb-2">
+                      {(it.opciones || []).map((o, idx) => (
+                        <span key={`${it.id}_${idx}`} className="badge text-bg-light me-1 mb-1" style={{ fontSize: 11 }}>
+                          {o.opcion_nombre} (+{money(o.precio_extra).replace("L ", "")})
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
 
-                  <td>
+                  <Form.Control
+                    className="mb-2"
+                    size="sm"
+                    placeholder="Notas (opcional)"
+                    value={it.notas || ""}
+                    onChange={(e) => setNotasItem(it.id, e.target.value)}
+                  />
+
+                  <div className="d-flex justify-content-between align-items-center gap-2 flex-wrap">
                     <div className="d-flex align-items-center gap-2">
                       <Button size="sm" variant="outline-dark" onClick={() => dec(it.id)}>
                         <FaMinus />
@@ -90,28 +89,24 @@ export default function CarritoPOS({
                         min={1}
                         value={it.cantidad}
                         onChange={(e) => setQty(it.id, e.target.value)}
-                        style={{ width: 70, textAlign: "center" }}
+                        style={{ width: 60, textAlign: "center" }}
                       />
 
                       <Button size="sm" variant="outline-dark" onClick={() => inc(it.id)}>
                         <FaPlus />
                       </Button>
                     </div>
-                  </td>
 
-                  <td className="text-end fw-bold">{money(lineTotal(it))}</td>
-
-                  <td className="text-end">
-                    <div className="d-inline-flex gap-2">
+                    <div className="d-flex gap-2">
                       <Button
                         size="sm"
                         variant="outline-primary"
-                        className="d-inline-flex align-items-center gap-2"
+                        className="d-inline-flex align-items-center gap-1"
                         onClick={() => onEditItem(it)}
                         title="Editar modificadores"
                       >
                         <FaPen />
-                        Editar
+                        <span className="d-none d-sm-inline">Editar</span>
                       </Button>
 
                       <Button
@@ -123,11 +118,11 @@ export default function CarritoPOS({
                         <FaTrash />
                       </Button>
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
+                  </div>
+                </Card.Body>
+              </Card>
+            ))}
+          </div>
         )}
       </Card.Body>
     </Card>

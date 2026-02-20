@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+
 import {
   Alert,
   Badge,
@@ -11,6 +12,7 @@ import {
   Modal,
   OverlayTrigger,
   Row,
+   Dropdown,
   Spinner,
   Table,
   Tooltip,
@@ -20,6 +22,7 @@ import {
   FaSearch,
   FaSyncAlt,
   FaEye,
+  FaEllipsisV,
   FaCheckCircle,
   FaBan,
   FaUndo,
@@ -156,6 +159,9 @@ export default function Ordenes() {
   const today = new Date();
   const seven = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
+  // ✅ NUEVO: Vista/pestaña activa
+  const [vista, setVista] = useState("todas"); // "todas" | "pendiente_cobro"
+
   const [desde, setDesde] = useState(() => seven.toISOString().slice(0, 10));
   const [hasta, setHasta] = useState(() => today.toISOString().slice(0, 10));
   const [estado, setEstado] = useState("");
@@ -170,6 +176,10 @@ export default function Ordenes() {
   const [showDetalle, setShowDetalle] = useState(false);
   const [detalleLoading, setDetalleLoading] = useState(false);
   const [ordenSel, setOrdenSel] = useState(null);
+
+  // ✅ NUEVO: Modal de cobro
+  const [showCobro, setShowCobro] = useState(false);
+  const [ordenCobro, setOrdenCobro] = useState(null);
 
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 992);
@@ -186,6 +196,8 @@ export default function Ordenes() {
         ...(estado ? { estado } : {}),
         ...(tipo ? { tipo } : {}),
         ...(q ? { q } : {}),
+        // ✅ NUEVO: flag para pendiente cobro
+        ...(vista === "pendiente_cobro" ? { pendiente_cobro: "1" } : {}),
       };
 
       const list = await fetchOrdenes(params);
@@ -211,6 +223,8 @@ export default function Ordenes() {
           mesa: o.mesa || o.numero_mesa || null,
           total: o.total ?? o.total_orden ?? o.monto_total ?? null,
           items: pickItems(o),
+          // ✅ NUEVO: info del mesero
+          mesero_nombre: o.mesero_nombre || o.creado_por_nombre || null,
         };
       });
 
@@ -236,7 +250,7 @@ export default function Ordenes() {
 
     return () => window.removeEventListener("resize", onResize);
     // eslint-disable-next-line
-  }, []);
+  }, [vista]); // ✅ NUEVO: recargar cuando cambia vista
 
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -383,501 +397,640 @@ export default function Ordenes() {
     }
   };
 
-  const acciones = (o) => {
-    const est = normalizeEstado(o.estado);
-    const disabled = busyId === o.id;
-
-    return (
-      <div className="d-flex gap-1 justify-content-end flex-wrap" style={{ minWidth: "200px" }}>
-        <OverlayTrigger placement="top" overlay={<Tooltip>Ver detalle</Tooltip>}>
-          <Button
-            size="sm"
-            variant="outline-dark"
-            className="d-inline-flex align-items-center gap-1 px-2 py-1"
-            onClick={() => openDetalle(o)}
-            style={{ fontSize: "0.75rem" }}
-          >
-            <FaEye size={12} />
-          </Button>
-        </OverlayTrigger>
-
-        {est === "NUEVA" ? (
-          <OverlayTrigger placement="top" overlay={<Tooltip>En preparación</Tooltip>}>
-            <span>
-              <Button
-                size="sm"
-                variant="warning"
-                disabled={disabled}
-                onClick={() => cambiarEstado(o, "EN_PREPARACION")}
-                className="d-inline-flex align-items-center gap-1 px-2 py-1"
-                style={{ fontSize: "0.75rem" }}
-              >
-                {disabled ? <Spinner size="sm" animation="border" style={{ width: "12px", height: "12px" }} /> : <FaClock size={12} />}
-              </Button>
-            </span>
-          </OverlayTrigger>
-        ) : null}
-
-        {est === "EN_PREPARACION" ? (
-          <OverlayTrigger placement="top" overlay={<Tooltip>Marcar como lista</Tooltip>}>
-            <span>
-              <Button
-                size="sm"
-                variant="success"
-                disabled={disabled}
-                onClick={() => cambiarEstado(o, "LISTA")}
-                className="d-inline-flex align-items-center gap-1 px-2 py-1"
-                style={{ fontSize: "0.75rem" }}
-              >
-                {disabled ? <Spinner size="sm" animation="border" style={{ width: "12px", height: "12px" }} /> : <FaCheckCircle size={12} />}
-              </Button>
-            </span>
-          </OverlayTrigger>
-        ) : null}
-
-        {est === "LISTA" ? (
-          <OverlayTrigger placement="top" overlay={<Tooltip>Entregar orden</Tooltip>}>
-            <span>
-              <Button
-                size="sm"
-                variant="dark"
-                disabled={disabled}
-                onClick={() => cambiarEstado(o, "ENTREGADA")}
-                className="d-inline-flex align-items-center gap-1 px-2 py-1"
-                style={{ fontSize: "0.75rem" }}
-              >
-                {disabled ? <Spinner size="sm" animation="border" style={{ width: "12px", height: "12px" }} /> : <FaCheckCircle size={12} />}
-              </Button>
-            </span>
-          </OverlayTrigger>
-        ) : null}
-
-        {["EN_PREPARACION", "LISTA"].includes(est) ? (
-          <OverlayTrigger placement="top" overlay={<Tooltip>Regresar a nueva</Tooltip>}>
-            <span>
-              <Button
-                size="sm"
-                variant="outline-secondary"
-                disabled={disabled}
-                onClick={() => cambiarEstado(o, "NUEVA")}
-                className="d-inline-flex align-items-center gap-1 px-2 py-1"
-                style={{ fontSize: "0.75rem" }}
-              >
-                <FaUndo size={12} />
-              </Button>
-            </span>
-          </OverlayTrigger>
-        ) : null}
-
-        {["ANULADA", "ENTREGADA"].includes(est) ? null : (
-          <OverlayTrigger placement="top" overlay={<Tooltip>Anular orden</Tooltip>}>
-            <span>
-              <Button
-                size="sm"
-                variant="outline-danger"
-                disabled={disabled}
-                onClick={() => cambiarEstado(o, "ANULADA")}
-                className="d-inline-flex align-items-center gap-1 px-2 py-1"
-                style={{ fontSize: "0.75rem" }}
-              >
-                <FaBan size={12} />
-              </Button>
-            </span>
-          </OverlayTrigger>
-        )}
-      </div>
-    );
-  };
+const accionesDropdown = (o) => {
+  const est = normalizeEstado(o.estado);
+  const disabled = busyId === o.id;
 
   return (
-    <Container fluid className="py-3">
-      {/* Header */}
-      <Row className="align-items-center g-2 mb-2">
-        <Col>
-          <div className="d-flex align-items-center gap-2">
-            <div
-              className="rounded-3 d-inline-flex align-items-center justify-content-center"
-              style={{ width: 40, height: 40, background: "rgba(13,110,253,.12)" }}
+    <Dropdown align="end">
+      <Dropdown.Toggle
+        size="sm"
+        variant="outline-dark"
+        className="d-inline-flex align-items-center gap-2"
+        disabled={disabled}
+      >
+        {disabled ? (
+          <Spinner size="sm" animation="border" />
+        ) : (
+          <FaEllipsisV />
+        )}
+        Acciones
+      </Dropdown.Toggle>
+
+      <Dropdown.Menu>
+        {/* Ver detalle */}
+        <Dropdown.Item
+          className="d-flex align-items-center gap-2"
+          onClick={() => openDetalle(o)}
+        >
+          <FaEye /> Ver detalle
+        </Dropdown.Item>
+
+        <Dropdown.Divider />
+
+        {/* NUEVA -> EN_PREPARACION */}
+        {est === "NUEVA" ? (
+          <Dropdown.Item
+            className="d-flex align-items-center gap-2"
+            onClick={() => cambiarEstado(o, "EN_PREPARACION")}
+            disabled={disabled}
+          >
+            <FaClock /> En preparación
+          </Dropdown.Item>
+        ) : null}
+
+        {/* EN_PREPARACION -> LISTA */}
+        {est === "EN_PREPARACION" ? (
+          <Dropdown.Item
+            className="d-flex align-items-center gap-2"
+            onClick={() => cambiarEstado(o, "LISTA")}
+            disabled={disabled}
+          >
+            <FaCheckCircle /> Marcar como lista
+          </Dropdown.Item>
+        ) : null}
+
+        {/* LISTA -> ENTREGADA */}
+        {est === "LISTA" ? (
+          <Dropdown.Item
+            className="d-flex align-items-center gap-2"
+            onClick={() => cambiarEstado(o, "ENTREGADA")}
+            disabled={disabled}
+          >
+            <FaCheckCircle /> Entregar orden
+          </Dropdown.Item>
+        ) : null}
+
+        {/* Regresar a NUEVA */}
+        {["EN_PREPARACION", "LISTA"].includes(est) ? (
+          <Dropdown.Item
+            className="d-flex align-items-center gap-2"
+            onClick={() => cambiarEstado(o, "NUEVA")}
+            disabled={disabled}
+          >
+            <FaUndo /> Regresar a nueva
+          </Dropdown.Item>
+        ) : null}
+
+        {/* Anular */}
+        {["ANULADA", "ENTREGADA"].includes(est) ? null : (
+          <>
+            <Dropdown.Divider />
+            <Dropdown.Item
+              className="d-flex align-items-center gap-2 text-danger"
+              onClick={() => cambiarEstado(o, "ANULADA")}
+              disabled={disabled}
             >
-              <FaClipboardList />
-            </div>
-            <div>
-              <div className="fw-bold" style={{ fontSize: 18 }}>
-                Órdenes (Monitor){" "}
-                <Badge bg="success" className="ms-2">
-                  LIVE
-                </Badge>
-              </div>
-              <div className="text-muted" style={{ fontSize: 12 }}>
-                Control general · Filtros · Estados · Detalle
-              </div>
-            </div>
+              <FaBan /> Anular orden
+            </Dropdown.Item>
+          </>
+        )}
+      </Dropdown.Menu>
+    </Dropdown>
+  );
+};
+
+  return (
+   <Container fluid className="py-3">
+  {/* Header */}
+  <Row className="align-items-center g-2 mb-2">
+    <Col>
+      <div className="d-flex align-items-center gap-2">
+        <div
+          className="rounded-3 d-inline-flex align-items-center justify-content-center"
+          style={{ width: 40, height: 40, background: "rgba(13,110,253,.12)" }}
+        >
+          <FaClipboardList />
+        </div>
+        <div>
+          <div className="fw-bold" style={{ fontSize: 18 }}>
+            Órdenes (Monitor){" "}
+            <Badge bg="success" className="ms-2">
+              LIVE
+            </Badge>
           </div>
+          <div className="text-muted" style={{ fontSize: 12 }}>
+            Control general · Filtros · Estados · Detalle
+          </div>
+        </div>
+      </div>
+    </Col>
+
+    <Col xs="auto" className="d-flex gap-2">
+      <Button
+        variant={autoRefresh ? "dark" : "outline-dark"}
+        onClick={() => setAutoRefresh((v) => !v)}
+      >
+        {autoRefresh ? "Auto ON" : "Auto OFF"}
+      </Button>
+
+      <Button
+        variant="outline-primary"
+        onClick={load}
+        disabled={loading}
+        className="d-inline-flex align-items-center gap-2"
+      >
+        <FaSyncAlt />
+        Actualizar
+      </Button>
+    </Col>
+  </Row>
+
+  {msg.text ? <Alert variant={msg.type}>{msg.text}</Alert> : null}
+
+  {/* ✅ NUEVO: Pestañas */}
+  <Card className="shadow-sm border-0 rounded-4 mb-3">
+    <Card.Body className="py-2 px-3">
+      <div className="d-flex gap-2">
+        <Button
+          variant={vista === "todas" ? "primary" : "outline-primary"}
+          size="sm"
+          onClick={() => setVista("todas")}
+          className="px-3"
+        >
+          📋 Todas las órdenes
+        </Button>
+        <Button
+          variant={vista === "pendiente_cobro" ? "warning" : "outline-warning"}
+          size="sm"
+          onClick={() => setVista("pendiente_cobro")}
+          className="px-3"
+        >
+          💰 Pendiente Cobro
+        </Button>
+      </div>
+    </Card.Body>
+  </Card>
+
+  {/* KPIs */}
+  <Row className="g-3 mb-3">
+    {[
+      { label: "Total", val: kpis.total },
+      { label: "Nuevas", val: kpis.nueva },
+      { label: "Preparación", val: kpis.prep },
+      { label: "Listas", val: kpis.lista },
+      { label: "Entregadas", val: kpis.entregada },
+      { label: "Anuladas", val: kpis.anulada },
+    ].map((k) => (
+      <Col key={k.label} xs={6} md={4} lg={2}>
+        <Card className="shadow-sm border-0 rounded-4">
+          <Card.Body className="py-3">
+            <div className="text-muted" style={{ fontSize: 12 }}>
+              {k.label}
+            </div>
+            <div className="fw-bold" style={{ fontSize: 22 }}>
+              {k.val}
+            </div>
+          </Card.Body>
+        </Card>
+      </Col>
+    ))}
+  </Row>
+
+  {/* Filtros */}
+  <Card className="shadow-sm border-0 rounded-4 mb-3">
+    <Card.Body className="py-3">
+      <Row className="g-2 align-items-end">
+        <Col xs={6} lg={2}>
+          <Form.Label className="fw-semibold">Desde</Form.Label>
+          <Form.Control type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+        </Col>
+        <Col xs={6} lg={2}>
+          <Form.Label className="fw-semibold">Hasta</Form.Label>
+          <Form.Control type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
+        </Col>
+        <Col xs={6} lg={2}>
+          <Form.Label className="fw-semibold">Estado</Form.Label>
+          <Form.Select value={estado} onChange={(e) => setEstado(e.target.value)}>
+            <option value="">Todos</option>
+            <option value="NUEVA">NUEVA</option>
+            <option value="EN_PREPARACION">EN PREPARACIÓN</option>
+            <option value="LISTA">LISTA</option>
+            <option value="ENTREGADA">ENTREGADA</option>
+            <option value="ANULADA">ANULADA</option>
+          </Form.Select>
+        </Col>
+        <Col xs={6} lg={2}>
+          <Form.Label className="fw-semibold">Tipo</Form.Label>
+          <Form.Select value={tipo} onChange={(e) => setTipo(e.target.value)}>
+            <option value="">Todos</option>
+            <option value="MESA">MESA</option>
+            <option value="LLEVAR">LLEVAR</option>
+            <option value="DELIVERY">DELIVERY</option>
+          </Form.Select>
         </Col>
 
-        <Col xs="auto" className="d-flex gap-2">
-          <Button
-            variant={autoRefresh ? "dark" : "outline-dark"}
-            onClick={() => setAutoRefresh((v) => !v)}
-          >
-            {autoRefresh ? "Auto ON" : "Auto OFF"}
-          </Button>
-
-          <Button
-            variant="outline-primary"
-            onClick={load}
-            disabled={loading}
-            className="d-inline-flex align-items-center gap-2"
-          >
-            <FaSyncAlt />
-            Actualizar
-          </Button>
+        <Col lg={4}>
+          <Form.Label className="fw-semibold">Buscar</Form.Label>
+          <InputGroup>
+            <InputGroup.Text>
+              <FaSearch />
+            </InputGroup.Text>
+            <Form.Control
+              placeholder="Código, mesa, tipo, cliente…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </InputGroup>
         </Col>
       </Row>
+    </Card.Body>
+  </Card>
 
-      {msg.text ? <Alert variant={msg.type}>{msg.text}</Alert> : null}
+  {/* Listado */}
+{loading ? (
+  <Card className="shadow-sm border-0 rounded-4 w-100 overflow-hidden">
+    <Card.Body className="py-5 text-center text-muted">
+      <div className="d-flex align-items-center justify-content-center gap-2">
+        <Spinner animation="border" role="status" />
+        <span className="fw-semibold">Cargando…</span>
+      </div>
+    </Card.Body>
+  </Card>
+) : isMobile ? (
+  <div className="d-grid gap-2">
+    {filtradas.length === 0 ? (
+      <Card className="shadow-sm border-0 rounded-4">
+        <Card.Body className="text-muted">No hay órdenes con esos filtros.</Card.Body>
+      </Card>
+    ) : (
+      filtradas.map((o) => {
+        const mins = minutesAgo(o.createdAt);
+        const warn = mins !== null && mins >= 15;
 
-      {/* KPIs */}
-      <Row className="g-3 mb-3">
-        {[
-          { label: "Total", val: kpis.total },
-          { label: "Nuevas", val: kpis.nueva },
-          { label: "Preparación", val: kpis.prep },
-          { label: "Listas", val: kpis.lista },
-          { label: "Entregadas", val: kpis.entregada },
-          { label: "Anuladas", val: kpis.anulada },
-        ].map((k) => (
-          <Col key={k.label} xs={6} md={4} lg={2}>
-            <Card className="shadow-sm border-0 rounded-4">
-              <Card.Body className="py-3">
-                <div className="text-muted" style={{ fontSize: 12 }}>
-                  {k.label}
+        return (
+          <Card key={o.id} className="shadow-sm border-0 rounded-4">
+            <Card.Body>
+              <div className="d-flex justify-content-between align-items-start gap-2">
+                <div className="me-2">
+                  <div className="fw-bold" style={{ fontSize: 16 }}>
+                    {o.codigo}
+                  </div>
+
+                  <div className="text-muted" style={{ fontSize: 12 }}>
+                    {fmtDateTime(o.createdAt)}
+                  </div>
+
+                  {/* ✅ NUEVO: Info mesero en vista pendiente cobro */}
+                  {vista === "pendiente_cobro" && o.mesero_nombre ? (
+                    <div className="text-primary fw-semibold mt-1" style={{ fontSize: 12 }}>
+                      👤 {o.mesero_nombre}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-1 d-flex gap-2 flex-wrap">
+                    <Badge bg="dark">{o.tipo}</Badge>
+
+                    {o.tipo === "MESA" ? (
+                      <Badge bg="info" text="dark">
+                        Mesa {o.mesa ?? "—"}
+                      </Badge>
+                    ) : null}
+
+                    {badgeEstado(o.estado)}
+
+                    {mins !== null ? (
+                      <Badge
+                        bg={warn ? "danger" : "light"}
+                        text={warn ? undefined : "dark"}
+                      >
+                        {mins} min
+                      </Badge>
+                    ) : null}
+                  </div>
                 </div>
-                <div className="fw-bold" style={{ fontSize: 22 }}>
-                  {k.val}
+
+                <div className="text-end">
+                  <div className="text-muted" style={{ fontSize: 12 }}>
+                    Total
+                  </div>
+                  <div className="fw-bold">
+                    {o.total == null ? "—" : money(o.total)}
+                  </div>
                 </div>
-              </Card.Body>
-            </Card>
-          </Col>
-        ))}
-      </Row>
+              </div>
 
-      {/* Filtros */}
-      <Card className="shadow-sm border-0 rounded-4 mb-3">
-        <Card.Body className="py-3">
-          <Row className="g-2 align-items-end">
-            <Col xs={6} lg={2}>
-              <Form.Label className="fw-semibold">Desde</Form.Label>
-              <Form.Control
-                type="date"
-                value={desde}
-                onChange={(e) => setDesde(e.target.value)}
-              />
-            </Col>
-            <Col xs={6} lg={2}>
-              <Form.Label className="fw-semibold">Hasta</Form.Label>
-              <Form.Control
-                type="date"
-                value={hasta}
-                onChange={(e) => setHasta(e.target.value)}
-              />
-            </Col>
-            <Col xs={6} lg={2}>
-              <Form.Label className="fw-semibold">Estado</Form.Label>
-              <Form.Select value={estado} onChange={(e) => setEstado(e.target.value)}>
-                <option value="">Todos</option>
-                <option value="NUEVA">NUEVA</option>
-                <option value="EN_PREPARACION">EN PREPARACIÓN</option>
-                <option value="LISTA">LISTA</option>
-                <option value="ENTREGADA">ENTREGADA</option>
-                <option value="ANULADA">ANULADA</option>
-              </Form.Select>
-            </Col>
-            <Col xs={6} lg={2}>
-              <Form.Label className="fw-semibold">Tipo</Form.Label>
-              <Form.Select value={tipo} onChange={(e) => setTipo(e.target.value)}>
-                <option value="">Todos</option>
-                <option value="MESA">MESA</option>
-                <option value="LLEVAR">LLEVAR</option>
-                <option value="DELIVERY">DELIVERY</option>
-              </Form.Select>
+              <hr className="my-3" />
+
+              <div
+                className="d-flex justify-content-between text-muted"
+                style={{ fontSize: 12 }}
+              >
+                <span>
+                  Items: <b>{pickItems(o).length || o.items_count || 0}</b>
+                </span>
+              </div>
+
+              {/* ✅ NUEVO: Botón cobrar en móvil para pendiente_cobro */}
+              <div className="mt-2">
+                {vista === "pendiente_cobro" ? (
+                  <Button
+                    variant="success"
+                    size="sm"
+                    className="w-100"
+                    onClick={() => {
+                      setOrdenCobro(o);
+                      setShowCobro(true);
+                    }}
+                  >
+                    💰 Cobrar
+                  </Button>
+                ) : (
+                  acciones(o)
+                )}
+              </div>
+            </Card.Body>
+          </Card>
+        );
+      })
+    )}
+  </div>
+) : (
+  // ✅ Desktop: FULL ancho (sin mx-auto / sin maxWidth)
+  <Card className="shadow-sm border-0 rounded-4 w-100 overflow-hidden">
+    <Card.Body className="p-0">
+      <div
+        className="w-100 overflow-y-auto overflow-x-hidden"
+        style={{ maxHeight: 420 }}
+      >
+        <Table hover size="sm" className="mb-0 align-middle w-100">
+          <thead className="table-light sticky-top">
+            <tr className="small text-uppercase">
+              <th className="text-nowrap">Código</th>
+              <th className="text-nowrap">Fecha</th>
+              {vista === "pendiente_cobro" ? <th className="text-nowrap">Mesero</th> : null}
+              <th className="text-nowrap">Tipo</th>
+              <th className="text-nowrap text-center">Mesa</th>
+              {vista === "pendiente_cobro" ? <th className="text-nowrap text-center">Tiempo</th> : null}
+              <th className="text-nowrap">Estado</th>
+              <th className="text-nowrap text-center">Items</th>
+              <th className="text-nowrap text-end">Total</th>
+              <th className="text-nowrap text-end">Acciones</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {filtradas.length === 0 ? (
+              <tr>
+                <td colSpan={vista === "pendiente_cobro" ? 10 : 8} className="text-muted py-4 text-center">
+                  No hay órdenes con esos filtros.
+                </td>
+              </tr>
+            ) : (
+              filtradas.map((o) => {
+                const mins = minutesAgo(o.createdAt);
+                const warn = mins !== null && mins >= 15;
+
+                return (
+                <tr key={o.id} className="small">
+                  <td className="fw-bold text-nowrap">{o.codigo}</td>
+
+                  <td className="text-muted">
+                    <span
+                      className="d-inline-block text-truncate"
+                      style={{ maxWidth: 170 }}
+                      title={fmtDateTime(o.createdAt)}
+                    >
+                      {fmtDateTime(o.createdAt)}
+                    </span>
+                  </td>
+
+                  {vista === "pendiente_cobro" ? (
+                    <td className="text-nowrap">
+                      <span className="fw-semibold">{o.mesero_nombre || "—"}</span>
+                    </td>
+                  ) : null}
+
+                  <td className="text-nowrap">
+                    <Badge bg="dark" className="small">
+                      {o.tipo}
+                    </Badge>
+                  </td>
+
+                  <td className="text-center text-nowrap">
+                    {o.tipo === "MESA" ? o.mesa ?? "—" : "—"}
+                  </td>
+
+                  {vista === "pendiente_cobro" ? (
+                    <td className="text-center text-nowrap">
+                      {mins !== null ? (
+                        <Badge bg={warn ? "danger" : "light"} text={warn ? undefined : "dark"}>
+                          {mins} min
+                        </Badge>
+                      ) : "—"}
+                    </td>
+                  ) : null}
+
+                  <td className="text-nowrap">{badgeEstado(o.estado)}</td>
+
+                  <td className="fw-semibold text-center text-nowrap">
+                    {pickItems(o).length || o.items_count || 0}
+                  </td>
+
+                  <td className="text-end fw-bold text-nowrap">
+                    {o.total == null ? "—" : money(o.total)}
+                  </td>
+
+                  {/* ✅ Si quieres que nunca ensanche: usa accionesDropdown(o) */}
+                  <td className="text-end text-nowrap">
+                    {vista === "pendiente_cobro" ? (
+                      <Button
+                        size="sm"
+                        variant="success"
+                        onClick={() => {
+                          setOrdenCobro(o);
+                          setShowCobro(true);
+                        }}
+                      >
+                        💰 Cobrar
+                      </Button>
+                    ) : (
+                      isMobile ? acciones(o) : accionesDropdown(o)
+                    )}
+                  </td>
+                </tr>
+              )})
+            )}
+          </tbody>
+        </Table>
+      </div>
+    </Card.Body>
+  </Card>
+)}
+
+  {/* Modal Detalle */}
+  <Modal show={showDetalle} onHide={() => setShowDetalle(false)} size="lg" centered>
+    <Modal.Header closeButton>
+      <Modal.Title className="fw-bold">
+        Detalle{" "}
+        {ordenSel?.codigo ? (
+          <Badge bg="dark" className="ms-2">
+            {ordenSel.codigo}
+          </Badge>
+        ) : null}
+      </Modal.Title>
+    </Modal.Header>
+
+    <Modal.Body>
+      {detalleLoading ? (
+        <div className="py-4 text-center text-muted">
+          <Spinner animation="border" className="me-2" />
+          Cargando detalle...
+        </div>
+      ) : !ordenSel ? (
+        <div className="text-muted">Sin información.</div>
+      ) : (
+        <>
+          <Row className="g-2">
+            <Col md={6}>
+              <Card className="rounded-4 border">
+                <Card.Body className="py-3">
+                  <div className="text-muted small">Tipo</div>
+                  <div className="fw-bold">{ordenSel.tipo}</div>
+                  {ordenSel.tipo === "MESA" ? (
+                    <div className="text-muted small mt-1">
+                      Mesa: <span className="fw-semibold">{ordenSel.mesa ?? "—"}</span>
+                    </div>
+                  ) : null}
+                  <div className="text-muted small mt-1">
+                    Fecha: {fmtDateTime(ordenSel.createdAt)}
+                  </div>
+                </Card.Body>
+              </Card>
             </Col>
 
-            <Col lg={4}>
-              <Form.Label className="fw-semibold">Buscar</Form.Label>
-              <InputGroup>
-                <InputGroup.Text>
-                  <FaSearch />
-                </InputGroup.Text>
-                <Form.Control
-                  placeholder="Código, mesa, tipo, cliente…"
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                />
-              </InputGroup>
+            <Col md={6}>
+              <Card className="rounded-4 border">
+                <Card.Body className="py-3">
+                  <div className="text-muted small">Estado</div>
+                  <div className="fw-bold">{badgeEstado(ordenSel.estado)}</div>
+                  {ordenSel.notas ? (
+                    <div className="text-muted small mt-2">
+                      Notas: <span className="fw-semibold">{ordenSel.notas}</span>
+                    </div>
+                  ) : (
+                    <div className="text-muted small mt-2">Sin notas.</div>
+                  )}
+                </Card.Body>
+              </Card>
             </Col>
           </Row>
-        </Card.Body>
-      </Card>
 
-      {/* Listado */}
-      {loading ? (
-        <Card className="shadow-sm border-0 rounded-4">
-          <Card.Body className="py-5 text-center text-muted">
-            <Spinner animation="border" className="me-2" />
-            Cargando...
-          </Card.Body>
-        </Card>
-      ) : isMobile ? (
-        <div className="d-grid gap-2">
-          {filtradas.length === 0 ? (
-            <Card className="shadow-sm border-0 rounded-4">
-              <Card.Body className="text-muted">No hay órdenes con esos filtros.</Card.Body>
-            </Card>
-          ) : (
-            filtradas.map((o) => {
-              const mins = minutesAgo(o.createdAt);
-              const warn = mins !== null && mins >= 15;
+          <hr />
 
-              return (
-                <Card key={o.id} className="shadow-sm border-0 rounded-4">
-                  <Card.Body>
-                    <div className="d-flex justify-content-between align-items-start gap-2">
-                      <div>
-                        <div className="fw-bold" style={{ fontSize: 16 }}>
-                          {o.codigo}
-                        </div>
-                        <div className="text-muted" style={{ fontSize: 12 }}>
-                          {fmtDateTime(o.createdAt)}
-                        </div>
-                        <div className="mt-1 d-flex gap-2 flex-wrap">
-                          <Badge bg="dark">{o.tipo}</Badge>
-                          {o.tipo === "MESA" ? (
-                            <Badge bg="info" text="dark">
-                              Mesa {o.mesa ?? "—"}
-                            </Badge>
-                          ) : null}
-                          {badgeEstado(o.estado)}
-                          {mins !== null ? (
-                            <Badge
-                              bg={warn ? "danger" : "light"}
-                              text={warn ? undefined : "dark"}
-                            >
-                              {mins} min
-                            </Badge>
-                          ) : null}
-                        </div>
-                      </div>
+          <div className="fw-bold mb-2">Items</div>
 
-                      <div className="text-end">
-                        <div className="text-muted" style={{ fontSize: 12 }}>
-                          Total
-                        </div>
-                        <div className="fw-bold">
-                          {o.total == null ? "—" : money(o.total)}
-                        </div>
-                      </div>
-                    </div>
-
-                    <hr />
-
-                    <div className="d-flex justify-content-between text-muted" style={{ fontSize: 12 }}>
-                      <span>
-                        Items: <b>{pickItems(o).length || o.items_count || 0}</b>
-                      </span>
-                    </div>
-
-                    <div className="mt-2">{acciones(o)}</div>
-                  </Card.Body>
-                </Card>
-              );
-            })
-          )}
-        </div>
-      ) : (
-        <Card className="shadow-sm border-0 rounded-4">
-          <Card.Body className="p-0">
-            <div 
-              className="table-responsive"
-              style={{ 
-                maxHeight: "400px", 
-                overflow: "auto",
-                borderRadius: "1rem"
-              }}
-            >
-              <Table 
-                hover 
-                className="mb-0 align-middle" 
-                style={{ 
-                  fontSize: "0.875rem",
-                  minWidth: "900px"
-                }}
-              >
-                <thead 
-                  style={{ 
-                    position: "sticky", 
-                    top: 0, 
-                    zIndex: 2, 
-                    background: "#f8f9fa",
-                    boxShadow: "0 2px 4px rgba(0,0,0,0.05)"
-                  }}
-                >
-                  <tr>
-                    <th style={{ padding: "0.75rem 0.5rem", width: "110px" }}>Código</th>
-                    <th style={{ padding: "0.75rem 0.5rem", width: "130px" }}>Fecha</th>
-                    <th style={{ padding: "0.75rem 0.5rem", width: "70px" }}>Tipo</th>
-                    <th style={{ padding: "0.75rem 0.5rem", width: "60px" }}>Mesa</th>
-                    <th style={{ padding: "0.75rem 0.5rem", width: "100px" }}>Estado</th>
-                    <th style={{ padding: "0.75rem 0.5rem", width: "50px", textAlign: "center" }}>Items</th>
-                    <th style={{ padding: "0.75rem 0.5rem", width: "90px" }} className="text-end">
-                      Total
-                    </th>
-                    <th style={{ padding: "0.75rem 0.5rem", width: "auto" }} className="text-end">
-                      Acciones
-                    </th>
+          {/* ✅ Detalle: también más compacto */}
+          <Table hover size="sm" className="mb-0 align-middle">
+            <thead className="table-light">
+              <tr className="small text-uppercase">
+                <th className="text-nowrap" style={{ width: 80 }}>
+                  Cant.
+                </th>
+                <th>Producto</th>
+                <th>Notas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pickItems(ordenSel).length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="text-muted">
+                    No hay items en la respuesta (recomendado incluir items en backend).
+                  </td>
+                </tr>
+              ) : (
+                pickItems(ordenSel).map((it, idx) => (
+                  <tr key={idx}>
+                    <td className="fw-semibold text-nowrap">
+                      {it.cantidad ?? it.qty ?? 1}
+                    </td>
+                    <td className="fw-semibold">
+                      {it.nombre || it.producto_nombre || it.producto || "Item"}
+                    </td>
+                    <td className="text-muted">{it.notas || "—"}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {filtradas.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="text-muted py-4 text-center">
-                        No hay órdenes con esos filtros.
-                      </td>
-                    </tr>
-                  ) : (
-                    filtradas.map((o) => (
-                      <tr key={o.id} style={{ fontSize: "0.85rem" }}>
-                        <td className="fw-bold" style={{ padding: "0.6rem 0.5rem" }}>
-                          {o.codigo}
-                        </td>
-                        <td className="text-muted" style={{ padding: "0.6rem 0.5rem", fontSize: "0.75rem" }}>
-                          {fmtDateTime(o.createdAt)}
-                        </td>
-                        <td style={{ padding: "0.6rem 0.5rem" }}>
-                          <Badge bg="dark" style={{ fontSize: "0.7rem" }}>{o.tipo}</Badge>
-                        </td>
-                        <td style={{ padding: "0.6rem 0.5rem", textAlign: "center" }}>
-                          {o.tipo === "MESA" ? o.mesa ?? "—" : "—"}
-                        </td>
-                        <td style={{ padding: "0.6rem 0.5rem" }}>{badgeEstado(o.estado)}</td>
-                        <td className="fw-semibold text-center" style={{ padding: "0.6rem 0.5rem" }}>
-                          {pickItems(o).length || o.items_count || 0}
-                        </td>
-                        <td className="text-end fw-bold" style={{ padding: "0.6rem 0.5rem" }}>
-                          {o.total == null ? "—" : money(o.total)}
-                        </td>
-                        <td className="text-end" style={{ padding: "0.6rem 0.5rem" }}>
-                          {acciones(o)}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </Table>
-            </div>
-          </Card.Body>
-        </Card>
+                ))
+              )}
+            </tbody>
+          </Table>
+        </>
       )}
+    </Modal.Body>
 
-      {/* Modal Detalle */}
-      <Modal show={showDetalle} onHide={() => setShowDetalle(false)} size="lg" centered>
-        <Modal.Header closeButton>
-          <Modal.Title className="fw-bold">
-            Detalle{" "}
-            {ordenSel?.codigo ? (
-              <Badge bg="dark" className="ms-2">
-                {ordenSel.codigo}
-              </Badge>
-            ) : null}
-          </Modal.Title>
-        </Modal.Header>
+    <Modal.Footer>
+      <Button variant="outline-secondary" onClick={() => setShowDetalle(false)}>
+        Cerrar
+      </Button>
+    </Modal.Footer>
+  </Modal>
 
-        <Modal.Body>
-          {detalleLoading ? (
-            <div className="py-4 text-center text-muted">
-              <Spinner animation="border" className="me-2" />
-              Cargando detalle...
-            </div>
-          ) : !ordenSel ? (
-            <div className="text-muted">Sin información.</div>
-          ) : (
-            <>
+  {/* ✅ NUEVO: Modal de Cobro */}
+  <Modal show={showCobro} onHide={() => setShowCobro(false)} centered>
+    <Modal.Header closeButton>
+      <Modal.Title className="fw-bold">
+        💰 Cobrar Orden
+        {ordenCobro?.codigo ? (
+          <Badge bg="dark" className="ms-2">
+            {ordenCobro.codigo}
+          </Badge>
+        ) : null}
+      </Modal.Title>
+    </Modal.Header>
+
+    <Modal.Body>
+      {!ordenCobro ? (
+        <div className="text-muted">Sin información.</div>
+      ) : (
+        <>
+          <Card className="rounded-4 border mb-3">
+            <Card.Body>
               <Row className="g-2">
-                <Col md={6}>
-                  <Card className="rounded-4 border">
-                    <Card.Body className="py-3">
-                      <div className="text-muted small">Tipo</div>
-                      <div className="fw-bold">{ordenSel.tipo}</div>
-                      {ordenSel.tipo === "MESA" ? (
-                        <div className="text-muted small mt-1">
-                          Mesa: <span className="fw-semibold">{ordenSel.mesa ?? "—"}</span>
-                        </div>
-                      ) : null}
-                      <div className="text-muted small mt-1">
-                        Fecha: {fmtDateTime(ordenSel.createdAt)}
-                      </div>
-                    </Card.Body>
-                  </Card>
+                <Col xs={6}>
+                  <div className="text-muted small">Mesa</div>
+                  <div className="fw-bold">{ordenCobro.mesa || "—"}</div>
                 </Col>
-
-                <Col md={6}>
-                  <Card className="rounded-4 border">
-                    <Card.Body className="py-3">
-                      <div className="text-muted small">Estado</div>
-                      <div className="fw-bold">{badgeEstado(ordenSel.estado)}</div>
-                      {ordenSel.notas ? (
-                        <div className="text-muted small mt-2">
-                          Notas: <span className="fw-semibold">{ordenSel.notas}</span>
-                        </div>
-                      ) : (
-                        <div className="text-muted small mt-2">Sin notas.</div>
-                      )}
-                    </Card.Body>
-                  </Card>
+                <Col xs={6}>
+                  <div className="text-muted small">Mesero</div>
+                  <div className="fw-bold">{ordenCobro.mesero_nombre || "—"}</div>
+                </Col>
+                <Col xs={6}>
+                  <div className="text-muted small">Items</div>
+                  <div className="fw-bold">
+                    {pickItems(ordenCobro).length || ordenCobro.items_count || 0}
+                  </div>
+                </Col>
+                <Col xs={6}>
+                  <div className="text-muted small">Total</div>
+                  <div className="fw-bold text-success" style={{ fontSize: 20 }}>
+                    {money(ordenCobro.total || 0)}
+                  </div>
                 </Col>
               </Row>
+            </Card.Body>
+          </Card>
 
-              <hr />
+          <Alert variant="info" className="small">
+            <strong>Nota:</strong> Esta orden fue creada por el mesero y está lista para cobrar. Al hacer clic en "Ir al POS" se abrirá el módulo de punto de venta con esta orden pre-cargada para procesar el pago.
+          </Alert>
+        </>
+      )}
+    </Modal.Body>
 
-              <div className="fw-bold mb-2">Items</div>
-              <Table responsive className="mb-0 align-middle">
-                <thead>
-                  <tr>
-                    <th style={{ width: 90 }}>Cant.</th>
-                    <th>Producto</th>
-                    <th>Notas</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pickItems(ordenSel).length === 0 ? (
-                    <tr>
-                      <td colSpan={3} className="text-muted">
-                        No hay items en la respuesta (recomendado incluir items en backend).
-                      </td>
-                    </tr>
-                  ) : (
-                    pickItems(ordenSel).map((it, idx) => (
-                      <tr key={idx}>
-                        <td className="fw-semibold">{it.cantidad ?? it.qty ?? 1}</td>
-                        <td className="fw-semibold">
-                          {it.nombre || it.producto_nombre || it.producto || "Item"}
-                        </td>
-                        <td className="text-muted">{it.notas || "—"}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </Table>
-            </>
-          )}
-        </Modal.Body>
-
-        <Modal.Footer>
-          <Button variant="outline-secondary" onClick={() => setShowDetalle(false)}>
-            Cerrar
-          </Button>
-        </Modal.Footer>
-      </Modal>
-    </Container>
+    <Modal.Footer>
+      <Button variant="secondary" onClick={() => setShowCobro(false)}>
+        Cancelar
+      </Button>
+      <Button
+        variant="success"
+        onClick={() => {
+          // TODO: Redirigir al POS con la orden pre-cargada
+          window.open(`/pos?orden_id=${ordenCobro?.id}`, "_blank");
+        }}
+      >
+        Ir al POS para Cobrar
+      </Button>
+    </Modal.Footer>
+  </Modal>
+</Container>
   );
 }

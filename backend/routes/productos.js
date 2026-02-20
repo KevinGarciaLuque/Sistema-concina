@@ -100,7 +100,7 @@ const upload = multer({
 router.get(
   "/",
   requireAuth,
-  allowRoles("admin", "supervisor", "cajero", "cocina"),
+  allowRoles("admin", "supervisor", "cajero", "cocina", "mesero"),
   asyncHandler(async (req, res) => {
     const { q, categoria_id, activo, en_menu, es_combo } = req.query;
 

@@ -19,6 +19,10 @@ export default function CatalogoProductos({
   setQ,
   onAdd,
 }) {
+  // Asegurar que siempre sean arrays
+  const categoriasArray = Array.isArray(categorias) ? categorias : [];
+  const productosArray = Array.isArray(productos) ? productos : [];
+  
   return (
     <Card className="shadow-sm border-0 rounded-4">
       <Card.Body>
@@ -38,7 +42,7 @@ export default function CatalogoProductos({
               disabled={loadingCat}
             >
               <option value="">Todas las categorías</option>
-              {categorias.map((c) => (
+              {categoriasArray.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.nombre}
                 </option>
@@ -66,11 +70,11 @@ export default function CatalogoProductos({
             <Spinner animation="border" size="sm" className="me-2" />
             Cargando productos...
           </div>
-        ) : productos.length === 0 ? (
+        ) : productosArray.length === 0 ? (
           <div className="text-muted">No hay productos con ese filtro.</div>
         ) : (
           <Row className="g-3">
-            {productos.map((p) => (
+            {productosArray.map((p) => (
               <Col key={p.id} xs={12} sm={6} md={6} lg={6} xl={4}>
                 <Card className="h-100 rounded-4 border">
                   {p.imagen_url ? (

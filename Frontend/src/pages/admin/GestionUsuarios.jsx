@@ -1,5 +1,6 @@
 //Frontend/src/pages/admin/GastionUsuarios.jsx
 import { useEffect, useMemo, useState } from "react";
+import { Dropdown } from "react-bootstrap";
 import {
   Alert,
   Badge,
@@ -21,9 +22,11 @@ import {
   FaSyncAlt,
   FaToggleOn,
   FaToggleOff,
+  FaEllipsisV,
   FaEye,
   FaEyeSlash,
   FaExclamationTriangle,
+  
 } from "react-icons/fa";
 import api from "../../api/axios";
 
@@ -425,143 +428,166 @@ export default function GestionUsuarios() {
       ) : null}
 
       {/* Filters + Table */}
-      <Card className="border-0 shadow-sm rounded-4">
-        <Card.Body>
-          <Row className="g-2 align-items-end mb-2">
-            <Col lg={6}>
-              <Form.Label className="fw-semibold">Buscar</Form.Label>
-              <InputGroup>
-                <InputGroup.Text>
-                  <FaSearch />
-                </InputGroup.Text>
-                <Form.Control
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Nombre, usuario, rol, id…"
-                />
-              </InputGroup>
-            </Col>
+     <Card className="border-0 shadow-sm rounded-4 w-100 overflow-hidden">
+  <Card.Body className="p-0">
+    {/* Filtros */}
+    <div className="p-3 pb-2">
+      <Row className="g-2 align-items-end">
+        <Col lg={6}>
+          <Form.Label className="fw-semibold">Buscar</Form.Label>
+          <InputGroup>
+            <InputGroup.Text>
+              <FaSearch />
+            </InputGroup.Text>
+            <Form.Control
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Nombre, usuario, rol, id…"
+            />
+          </InputGroup>
+        </Col>
 
-            <Col lg={3}>
-              <Form.Label className="fw-semibold">Rol</Form.Label>
-              <Form.Select
-                value={fRol}
-                onChange={(e) => setFRol(e.target.value)}
-              >
-                <option value="todos">Todos</option>
-                {rolesOptions.map((r) => (
-                  <option key={r.id} value={String(r.nombre).toLowerCase()}>
-                    {r.nombre}
-                  </option>
-                ))}
-              </Form.Select>
-            </Col>
+        <Col lg={3}>
+          <Form.Label className="fw-semibold">Rol</Form.Label>
+          <Form.Select value={fRol} onChange={(e) => setFRol(e.target.value)}>
+            <option value="todos">Todos</option>
+            {rolesOptions.map((r) => (
+              <option key={r.id} value={String(r.nombre).toLowerCase()}>
+                {r.nombre}
+              </option>
+            ))}
+          </Form.Select>
+        </Col>
 
-            <Col lg={3} className="text-lg-end">
-              <div className="text-muted" style={{ fontSize: 12 }}>
-                Mostrando <b>{filtrados.length}</b> de <b>{usuarios.length}</b>
-              </div>
-            </Col>
-          </Row>
-
-          <div style={{ maxHeight: "65vh", overflow: "auto" }}>
-            <Table responsive hover className="align-middle mb-0">
-              <thead
-                style={{
-                  position: "sticky",
-                  top: 0,
-                  background: "white",
-                  zIndex: 1,
-                }}
-              >
-                <tr>
-                  <th style={{ minWidth: 70 }}>ID</th>
-                  <th style={{ minWidth: 240 }}>Nombre</th>
-                  <th style={{ minWidth: 220 }}>Usuario</th>
-                  <th style={{ minWidth: 140 }}>Rol</th>
-                  <th style={{ minWidth: 120 }}>Estado</th>
-                  <th style={{ minWidth: 220 }} className="text-end">
-                    Acciones
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td colSpan={6} className="py-4 text-muted">
-                      <Spinner animation="border" size="sm" className="me-2" />
-                      Cargando usuarios…
-                    </td>
-                  </tr>
-                ) : filtrados.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-4 text-muted">
-                      No hay usuarios con esos filtros.
-                    </td>
-                  </tr>
-                ) : (
-                  filtrados.map((u) => {
-                    const isBusy = busyId === u.id;
-                    const rolNom = roleName(u);
-
-                    return (
-                      <tr key={u.id}>
-                        <td className="text-muted">{u.id}</td>
-                        <td className="fw-semibold">{u.nombre}</td>
-                        <td>{u.usuario}</td>
-                        <td>
-                          <Badge bg={roleBadgeVariant(rolNom)}>{rolNom}</Badge>
-                        </td>
-                        <td>
-                          <Badge bg={u.activo ? "success" : "secondary"}>
-                            {u.activo ? "Activo" : "Inactivo"}
-                          </Badge>
-                        </td>
-                        <td className="text-end">
-                          <div className="d-inline-flex gap-2">
-                            <Button
-                              size="sm"
-                              variant={
-                                u.activo
-                                  ? "outline-success"
-                                  : "outline-secondary"
-                              }
-                              onClick={() => toggleActivo(u)}
-                              disabled={isBusy}
-                              className="d-inline-flex align-items-center gap-2"
-                              title="Activar/Desactivar"
-                            >
-                              {isBusy ? (
-                                <Spinner size="sm" animation="border" />
-                              ) : u.activo ? (
-                                <FaToggleOn />
-                              ) : (
-                                <FaToggleOff />
-                              )}
-                              {u.activo ? "ON" : "OFF"}
-                            </Button>
-
-                            <Button
-                              size="sm"
-                              variant="outline-dark"
-                              onClick={() => abrirEditar(u)}
-                              className="d-inline-flex align-items-center gap-2"
-                            >
-                              <FaEdit />
-                              Editar
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </Table>
+        <Col lg={3} className="text-lg-end">
+          <div className="text-muted" style={{ fontSize: 12 }}>
+            Mostrando <b>{filtrados.length}</b> de <b>{usuarios.length}</b>
           </div>
-        </Card.Body>
-      </Card>
+        </Col>
+      </Row>
+    </div>
+
+    {/* Tabla */}
+    <div
+      className="w-100 overflow-y-auto overflow-x-hidden"
+      style={{ maxHeight: "65vh" }}
+    >
+      <Table hover size="sm" className="align-middle mb-0 w-100">
+        <thead className="table-light sticky-top">
+          <tr className="small text-uppercase">
+            <th className="text-nowrap" style={{ width: 70 }}>
+              ID
+            </th>
+            <th>Nombre</th>
+            <th>Usuario</th>
+            <th className="text-nowrap">Rol</th>
+            <th className="text-nowrap">Estado</th>
+            <th className="text-nowrap text-end">Acciones</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {loading ? (
+            <tr>
+              <td colSpan={6} className="py-4 text-muted text-center">
+                <Spinner animation="border" size="sm" className="me-2" />
+                Cargando usuarios…
+              </td>
+            </tr>
+          ) : filtrados.length === 0 ? (
+            <tr>
+              <td colSpan={6} className="py-4 text-muted text-center">
+                No hay usuarios con esos filtros.
+              </td>
+            </tr>
+          ) : (
+            filtrados.map((u) => {
+              const isBusy = busyId === u.id;
+              const rolNom = roleName(u);
+
+              return (
+                <tr key={u.id} className="small">
+                  <td className="text-muted text-nowrap">{u.id}</td>
+
+                  {/* ✅ no ensancha */}
+                  <td className="fw-semibold">
+                    <span
+                      className="d-inline-block text-truncate"
+                      style={{ maxWidth: 260 }}
+                      title={u.nombre}
+                    >
+                      {u.nombre}
+                    </span>
+                  </td>
+
+                  <td>
+                    <span
+                      className="d-inline-block text-truncate"
+                      style={{ maxWidth: 220 }}
+                      title={u.usuario}
+                    >
+                      {u.usuario}
+                    </span>
+                  </td>
+
+                  <td className="text-nowrap">
+                    <Badge bg={roleBadgeVariant(rolNom)}>{rolNom}</Badge>
+                  </td>
+
+                  <td className="text-nowrap">
+                    <Badge bg={u.activo ? "success" : "secondary"}>
+                      {u.activo ? "Activo" : "Inactivo"}
+                    </Badge>
+                  </td>
+
+                  {/* ✅ Dropdown elegante (no rompe ancho) */}
+                  <td className="text-end text-nowrap">
+                    <Dropdown align="end">
+                      <Dropdown.Toggle
+                        size="sm"
+                        variant="outline-dark"
+                        className="d-inline-flex align-items-center gap-2"
+                        disabled={isBusy}
+                      >
+                        <FaEllipsisV />
+                        Acciones
+                      </Dropdown.Toggle>
+
+                      <Dropdown.Menu>
+                        <Dropdown.Item
+                          className="d-flex align-items-center gap-2"
+                          onClick={() => toggleActivo(u)}
+                          disabled={isBusy}
+                        >
+                          {isBusy ? (
+                            <Spinner size="sm" animation="border" />
+                          ) : u.activo ? (
+                            <FaToggleOn />
+                          ) : (
+                            <FaToggleOff />
+                          )}
+                          {u.activo ? "Desactivar" : "Activar"}
+                        </Dropdown.Item>
+
+                        <Dropdown.Item
+                          className="d-flex align-items-center gap-2"
+                          onClick={() => abrirEditar(u)}
+                          disabled={isBusy}
+                        >
+                          <FaEdit /> Editar
+                        </Dropdown.Item>
+                      </Dropdown.Menu>
+                    </Dropdown>
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </Table>
+    </div>
+  </Card.Body>
+</Card>
 
       {/* Modal Crear/Editar */}
       <Modal show={showForm} onHide={() => setShowForm(false)} centered>

@@ -53,12 +53,15 @@ function fmtDateTime(v) {
   return d.toLocaleString();
 }
 
-function minutesAgo(v) {
+function timeAgo(v) {
   if (!v) return null;
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return null;
   const diff = Date.now() - d.getTime();
-  return Math.max(0, Math.floor(diff / 60000));
+  const totalSeconds = Math.max(0, Math.floor(diff / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return { minutes, seconds, totalMinutes: minutes };
 }
 
 function safeArray(x) {
@@ -126,6 +129,7 @@ export default function Cocina() {
 
   const [showDetalle, setShowDetalle] = useState(false);
   const [ordenSel, setOrdenSel] = useState(null);
+  const [loadingDetalle, setLoadingDetalle] = useState(false);
 
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 992);
 
@@ -267,14 +271,52 @@ export default function Cocina() {
     }
   };
 
-  const openDetalle = (orden) => {
-    setOrdenSel(orden);
+  const openDetalle = async (orden) => {
+    setOrdenSel(orden); // muestra el modal con datos básicos primero
     setShowDetalle(true);
+    setLoadingDetalle(true);
+
+    // Cargar detalle completo del backend
+    try {
+      const { data } = await api.get(`/cocina/ordenes/${orden.id}`);
+      const ordenCompleta = data?.data ?? data;
+      
+      // Extrae items de diferentes estructuras posibles
+      const items = 
+        safeArray(ordenCompleta.items) || 
+        safeArray(ordenCompleta.detalle) || 
+        safeArray(ordenCompleta?.orden?.items) ||
+        safeArray(ordenCompleta?.orden?.detalle) ||
+        orden.items || // fallback a los datos locales
+        [];
+
+      // Actualiza con la información completa
+      setOrdenSel({
+        ...orden,
+        ...ordenCompleta?.orden,
+        items,
+      });
+    } catch (e) {
+      console.error("Error cargando detalle de orden:", e);
+      // Si falla, deja los datos que ya tenía
+    } finally {
+      setLoadingDetalle(false);
+    }
   };
 
   const OrderCard = ({ orden }) => {
-    const mins = minutesAgo(orden.createdAt);
-    const warn = mins !== null && mins >= 15; // alerta si lleva mucho tiempo
+    const [currentTime, setCurrentTime] = useState(Date.now());
+
+    // Actualizar cada segundo para el temporizador
+    useEffect(() => {
+      const interval = setInterval(() => {
+        setCurrentTime(Date.now());
+      }, 1000);
+      return () => clearInterval(interval);
+    }, []);
+
+    const time = timeAgo(orden.createdAt);
+    const warn = time !== null && time.totalMinutes >= 15; // alerta si lleva mucho tiempo
 
     const items = safeArray(orden.items);
     const preview = items.slice(0, 4);
@@ -290,11 +332,11 @@ export default function Cocina() {
                 {orden.tipo === "MESA" && orden.mesa ? <Badge bg="info" text="dark">Mesa {orden.mesa}</Badge> : null}
                 {warn ? (
                   <Badge bg="danger" className="d-inline-flex align-items-center gap-1">
-                    <FaExclamationTriangle /> {mins} min
+                    <FaExclamationTriangle /> {time.minutes}:{String(time.seconds).padStart(2, '0')}
                   </Badge>
-                ) : mins !== null ? (
+                ) : time !== null ? (
                   <Badge bg="light" text="dark" className="d-inline-flex align-items-center gap-1">
-                    <FaClock /> {mins} min
+                    <FaClock /> {time.minutes}:{String(time.seconds).padStart(2, '0')}
                   </Badge>
                 ) : null}
               </div>
@@ -322,14 +364,28 @@ export default function Cocina() {
 
           <div className="mt-2">
             {preview.length ? (
-              <div className="small">
+              <div>
                 {preview.map((it, idx) => (
-                  <div key={idx} className="d-flex justify-content-between gap-2">
-                    <span className="text-truncate">
-                      <span className="fw-semibold">{it.cantidad ?? it.qty ?? 1}×</span>{" "}
-                      {it.nombre || it.producto_nombre || it.producto || "Item"}
-                    </span>
-                    {it.notas ? <Badge bg="light" text="dark">Nota</Badge> : null}
+                  <div key={idx} className="mb-2">
+                    <div className="d-flex justify-content-between gap-2">
+                      <div className="flex-grow-1">
+                        <div style={{ fontSize: 15 }}>
+                          <span className="fw-bold">{it.cantidad ?? it.qty ?? 1}×</span>{" "}
+                          <span className="fw-semibold">{it.nombre || it.producto_nombre || it.producto || "Item"}</span>
+                        </div>
+                        {safeArray(it.opciones).length > 0 && (
+                          <div className="mt-1">
+                            {it.opciones.map((op, opIdx) => (
+                              <Badge key={opIdx} bg="light" text="dark" className="me-1 mb-1" style={{ fontSize: 11 }}>
+                                {op.opcion_nombre}
+                                {Number(op.precio_extra || 0) > 0 ? ` (+L ${Number(op.precio_extra).toFixed(2)})` : ''}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {it.notas ? <Badge bg="warning" text="dark">Nota</Badge> : null}
+                    </div>
                   </div>
                 ))}
                 {items.length > preview.length ? (
@@ -583,7 +639,14 @@ export default function Cocina() {
                   </tr>
                 </thead>
                 <tbody>
-                  {safeArray(ordenSel.items).length === 0 ? (
+                  {loadingDetalle ? (
+                    <tr>
+                      <td colSpan={3} className="text-center py-3 text-muted">
+                        <Spinner animation="border" size="sm" className="me-2" />
+                        Cargando detalle...
+                      </td>
+                    </tr>
+                  ) : safeArray(ordenSel.items).length === 0 ? (
                     <tr>
                       <td colSpan={3} className="text-muted">
                         No hay items en la respuesta. (Tu backend debe incluir detalle: items/detalle/productos).
@@ -593,7 +656,19 @@ export default function Cocina() {
                     safeArray(ordenSel.items).map((it, idx) => (
                       <tr key={idx}>
                         <td className="fw-semibold">{it.cantidad ?? it.qty ?? 1}</td>
-                        <td className="fw-semibold">{it.nombre || it.producto_nombre || it.producto || "Item"}</td>
+                        <td>
+                          <div className="fw-semibold">{it.nombre || it.producto_nombre || it.producto || "Item"}</div>
+                          {safeArray(it.opciones).length > 0 && (
+                            <div className="mt-1">
+                              {it.opciones.map((op, opIdx) => (
+                                <Badge key={opIdx} bg="light" text="dark" className="me-1 mb-1">
+                                  {op.opcion_nombre} 
+                                  {Number(op.precio_extra || 0) > 0 ? ` (+L ${Number(op.precio_extra).toFixed(2)})` : ''}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </td>
                         <td className="text-muted">{it.notas || "—"}</td>
                       </tr>
                     ))

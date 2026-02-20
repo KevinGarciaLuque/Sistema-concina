@@ -298,80 +298,94 @@ export default function Bitacora() {
       </Card>
 
       {/* Tabla */}
-      <Card className="border-0 shadow-sm rounded-4">
-        <Card.Body>
-          <div style={{ maxHeight: "70vh", overflow: "auto" }}>
-            <Table hover responsive className="align-middle mb-0">
-              <thead
-                style={{
-                  position: "sticky",
-                  top: 0,
-                  background: "white",
-                  zIndex: 1,
-                }}
-              >
-                <tr>
-                  <th style={{ width: 80 }}>ID</th>
-                  <th style={{ minWidth: 220 }}>Usuario</th>
-                  <th style={{ minWidth: 160 }}>Acción</th>
-                  <th style={{ minWidth: 220 }}>Entidad</th>
-                  <th style={{ minWidth: 260 }}>Detalle</th>
-                  <th style={{ width: 190 }}>Fecha</th>
-                </tr>
-              </thead>
+     <Card className="border-0 shadow-sm rounded-4 w-100 overflow-hidden">
+  <Card.Body className="p-0">
+    {/* ✅ Scroll vertical SÍ / horizontal NO */}
+    <div className="w-100 overflow-y-auto overflow-x-hidden" style={{ maxHeight: "70vh" }}>
+      <Table hover size="sm" className="align-middle mb-0 w-100">
+        <thead className="table-light sticky-top">
+          <tr className="small text-uppercase">
+            <th className="text-nowrap" style={{ width: 80 }}>ID</th>
+            <th>Usuario</th>
+            <th className="text-nowrap">Acción</th>
+            <th>Entidad</th>
+            <th>Detalle</th>
+            <th className="text-nowrap" style={{ width: 190 }}>Fecha</th>
+          </tr>
+        </thead>
 
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td colSpan={6} className="py-4 text-muted">
-                      <Spinner animation="border" size="sm" className="me-2" />
-                      Cargando...
-                    </td>
-                  </tr>
-                ) : rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-4 text-muted">
-                      Sin registros con ese filtro.
-                    </td>
-                  </tr>
-                ) : (
-                  rows.map((b) => (
-                    <tr key={b.id}>
-                      <td className="text-muted">{b.id}</td>
-                      <td>
-                        <div className="fw-semibold">
-                          {b.usuario_nombre || "—"}
-                        </div>
-                        <small className="text-muted">
-                          {b.usuario_login || ""}
-                        </small>
-                      </td>
-                      <td className="fw-semibold">{b.accion || "—"}</td>
-                      <td>
-                        <div className="fw-semibold">
-                          {b.entidad || "—"}
-                          {b.entidad_id ? ` #${b.entidad_id}` : ""}
-                        </div>
-                        <small className="text-muted">
-                          {b.ip ? `IP: ${b.ip}` : ""}
-                        </small>
-                      </td>
-                      <td style={{ maxWidth: 420 }}>
-                        <span className="text-muted">{b.detalle || "—"}</span>
-                      </td>
-                      <td className="text-muted">{b.created_at || "—"}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </Table>
-          </div>
+        <tbody>
+          {loading ? (
+            <tr>
+              <td colSpan={6} className="py-4 text-muted text-center">
+                <Spinner animation="border" size="sm" className="me-2" />
+                Cargando...
+              </td>
+            </tr>
+          ) : rows.length === 0 ? (
+            <tr>
+              <td colSpan={6} className="py-4 text-muted text-center">
+                Sin registros con ese filtro.
+              </td>
+            </tr>
+          ) : (
+            rows.map((b) => (
+              <tr key={b.id} className="small">
+                <td className="text-muted text-nowrap">{b.id}</td>
 
-          <div className="text-muted mt-2" style={{ fontSize: 12 }}>
-            Endpoint: <code>/reportes/bitacora</code>
-          </div>
-        </Card.Body>
-      </Card>
+                <td>
+                  <div className="fw-semibold text-truncate" style={{ maxWidth: 260 }}>
+                    {b.usuario_nombre || "—"}
+                  </div>
+                  <div className="text-muted small text-truncate" style={{ maxWidth: 260 }}>
+                    {b.usuario_login || ""}
+                  </div>
+                </td>
+
+                <td className="fw-semibold text-nowrap">{b.accion || "—"}</td>
+
+                <td>
+                  <div className="fw-semibold text-truncate" style={{ maxWidth: 260 }}>
+                    {b.entidad || "—"}
+                    {b.entidad_id ? ` #${b.entidad_id}` : ""}
+                  </div>
+                  <div className="text-muted small text-truncate" style={{ maxWidth: 260 }}>
+                    {b.ip ? `IP: ${b.ip}` : ""}
+                  </div>
+                </td>
+
+                {/* ✅ Detalle: no ensancha, se recorta con … */}
+                <td>
+                  <span
+                    className="d-inline-block text-truncate text-muted"
+                    style={{ maxWidth: 420 }}
+                    title={b.detalle || "—"}
+                  >
+                    {b.detalle || "—"}
+                  </span>
+                </td>
+
+                <td className="text-muted text-nowrap">
+                  <span
+                    className="d-inline-block text-truncate"
+                    style={{ maxWidth: 180 }}
+                    title={b.created_at || "—"}
+                  >
+                    {b.created_at || "—"}
+                  </span>
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </Table>
+    </div>
+
+    <div className="px-3 py-2 text-muted" style={{ fontSize: 12 }}>
+      Endpoint: <code>/reportes/bitacora</code>
+    </div>
+  </Card.Body>
+</Card>
     </div>
   );
 }

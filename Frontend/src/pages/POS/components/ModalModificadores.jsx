@@ -46,8 +46,15 @@ export default function ModalModificadores({ show, loading, data, onHide, onConf
         else cur.push(oid);
         return { ...prev, [mod.id]: cur };
       } else {
-        // single choice
-        return { ...prev, [mod.id]: [oid] };
+        // single choice - permite deseleccionar
+        const idx = cur.indexOf(oid);
+        if (idx >= 0) {
+          // ya estaba seleccionado, deseleccionar
+          return { ...prev, [mod.id]: [] };
+        } else {
+          // seleccionar esta opción
+          return { ...prev, [mod.id]: [oid] };
+        }
       }
     });
   };

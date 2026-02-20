@@ -125,6 +125,7 @@ async function cargarDetalleOrdenes(orderIds) {
     if (!detalleByOrden.has(oid)) detalleByOrden.set(oid, []);
     detalleByOrden.get(oid).push({
       ...d,
+      nombre: d.producto_nombre, // alias para el frontend
       opciones: opsByDet.get(Number(d.id)) || [],
     });
   }
@@ -170,6 +171,41 @@ router.get(
     };
 
     res.json({ ok: true, data: { resumen, ordenes: data } });
+  })
+);
+
+/* =========================================================
+   GET /api/cocina/kds
+   Alias de /board pero devuelve array directo con "items"
+   para compatibilidad con el frontend
+========================================================= */
+router.get(
+  "/kds",
+  requireAuth,
+  allowRoles("admin", "supervisor", "cocina"),
+  asyncHandler(async (req, res) => {
+    const [ordenes] = await exec(
+      `SELECT
+         o.id, o.codigo, o.tipo, o.mesa, o.cliente_nombre, o.estado,
+         o.notas, o.subtotal, o.descuento, o.impuesto, o.total,
+         o.created_at, o.updated_at
+       FROM ordenes o
+       WHERE o.fecha = CURDATE()
+         AND o.estado IN ('NUEVA','EN_PREPARACION','LISTA')
+       ORDER BY
+         FIELD(o.estado, 'NUEVA','EN_PREPARACION','LISTA'),
+         o.created_at ASC`
+    );
+
+    const ids = ordenes.map((o) => Number(o.id));
+    const { detalleByOrden } = await cargarDetalleOrdenes(ids);
+
+    const data = ordenes.map((o) => ({
+      ...o,
+      items: detalleByOrden.get(Number(o.id)) || [], // usa "items" para el frontend
+    }));
+
+    res.json({ ok: true, data });
   })
 );
 
@@ -221,10 +257,14 @@ router.get(
 
     res.json({
       ok: true,
-      data: ordenes.map((o) => ({
-        ...o,
-        detalle: detalleByOrden.get(Number(o.id)) || [],
-      })),
+      data: ordenes.map((o) => {
+        const items = detalleByOrden.get(Number(o.id)) || [];
+        return {
+          ...o,
+          items, // para el frontend de Cocina
+          detalle: items, // alias por compatibilidad
+        };
+      }),
     });
   })
 );
@@ -283,6 +323,7 @@ router.get(
 
     const detalle = det.map((d) => ({
       ...d,
+      nombre: d.producto_nombre, // alias para el frontend
       opciones: opsByDet.get(Number(d.id)) || [],
     }));
 
@@ -294,7 +335,15 @@ router.get(
       [Number(id)]
     );
 
-    res.json({ ok: true, data: { orden: oRows[0], detalle, historial: hist } });
+    res.json({ 
+      ok: true, 
+      data: { 
+        orden: oRows[0], 
+        items: detalle, // para el frontend de Cocina
+        detalle, // alias por compatibilidad
+        historial: hist 
+      } 
+    });
   })
 );
 

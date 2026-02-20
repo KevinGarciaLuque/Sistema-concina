@@ -71,7 +71,7 @@ const toBoolInt = (v, def = null) => {
 router.get(
   "/",
   requireAuth,
-  allowRoles("admin", "supervisor", "cajero", "cocina"),
+  allowRoles("admin", "supervisor", "cajero", "cocina", "mesero"),
   asyncHandler(async (req, res) => {
     const activo = toBoolInt(req.query.activo, null);
 
@@ -105,7 +105,7 @@ router.get(
 router.get(
   "/:id",
   requireAuth,
-  allowRoles("admin", "supervisor", "cajero", "cocina"),
+  allowRoles("admin", "supervisor", "cajero", "cocina", "mesero"),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     if (!isInt(id)) return res.status(400).json({ ok: false, message: "ID inválido." });
@@ -302,7 +302,7 @@ router.delete(
 router.get(
   "/:id/opciones",
   requireAuth,
-  allowRoles("admin", "supervisor", "cajero", "cocina"),
+  allowRoles("admin", "supervisor", "cajero", "cocina", "mesero"),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     if (!isInt(id)) return res.status(400).json({ ok: false, message: "ID inválido." });
@@ -504,7 +504,7 @@ router.delete(
 router.get(
   "/por-producto/:productoId",
   requireAuth,
-  allowRoles("admin", "supervisor", "cajero", "cocina"),
+  allowRoles("admin", "supervisor", "cajero", "cocina", "mesero"),
   asyncHandler(async (req, res) => {
     const { productoId } = req.params;
     if (!isInt(productoId)) return res.status(400).json({ ok: false, message: "productoId inválido." });

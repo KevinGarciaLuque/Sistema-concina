@@ -1,5 +1,5 @@
-import { Badge, Button, Card, Form, InputGroup } from "react-bootstrap";
-import { FaPaperPlane, FaReceipt } from "react-icons/fa";
+import { Badge, Button, Card, Form, InputGroup, Alert } from "react-bootstrap";
+import { FaPaperPlane, FaReceipt, FaCashRegister, FaClock } from "react-icons/fa";
 
 function money(n) {
   const v = Number(n || 0);
@@ -25,8 +25,10 @@ export default function CheckoutPanel({
   busyCrear,
   onCrearOrden,
   ordenCreada,
+  onCobrarAhora,
+  onCobrarDespues,
 }) {
-  const disableCrear = busyCrear || carritoCount === 0 || (tipo === "MESA" && !String(mesa || "").trim());
+  const disableCrear = busyCrear || carritoCount === 0 || (tipo === "MESA" && !String(mesa || "").trim()) || ordenCreada?.codigo;
 
   return (
     <Card className="shadow-sm border-0 rounded-4">
@@ -125,31 +127,50 @@ export default function CheckoutPanel({
           </Card.Body>
         </Card>
 
-        <Button
-          className="w-100 mt-3 d-inline-flex align-items-center justify-content-center gap-2"
-          variant="success"
-          onClick={onCrearOrden}
-          disabled={disableCrear}
-        >
-          <FaPaperPlane />
-          Enviar a cocina (crear orden)
-        </Button>
+        {!ordenCreada?.codigo ? (
+          <Button
+            className="w-100 mt-3 d-inline-flex align-items-center justify-content-center gap-2"
+            variant="success"
+            onClick={onCrearOrden}
+            disabled={disableCrear}
+          >
+            <FaPaperPlane />
+            Enviar a cocina (crear orden)
+          </Button>
+        ) : null}
 
         {ordenCreada?.codigo ? (
-          <div className="mt-3 p-3 rounded-4 border bg-light">
-            <div className="d-flex align-items-center justify-content-between">
+          <Alert variant="success" className="mt-3 mb-0">
+            <div className="d-flex align-items-center gap-2 mb-2">
+              <FaReceipt style={{ fontSize: 20 }} />
               <div>
-                <div className="fw-bold d-flex align-items-center gap-2">
-                  <FaReceipt />
-                  Orden creada
-                </div>
-                <div className="text-muted" style={{ fontSize: 12 }}>
-                  Código: <span className="fw-semibold">{ordenCreada.codigo}</span>
+                <div className="fw-bold">Orden creada exitosamente</div>
+                <div style={{ fontSize: 13 }}>
+                  Código: <span className="fw-semibold">{ordenCreada.codigo}</span> #{ordenCreada.id}
                 </div>
               </div>
-              <Badge bg="dark">#{ordenCreada.id}</Badge>
             </div>
-          </div>
+            
+            <div className="d-flex gap-2 mt-3">
+              <Button
+                variant="success"
+                className="flex-fill d-inline-flex align-items-center justify-content-center gap-2"
+                onClick={onCobrarAhora}
+              >
+                <FaCashRegister />
+                Cobrar ahora
+              </Button>
+              
+              <Button
+                variant="outline-secondary"
+                className="flex-fill d-inline-flex align-items-center justify-content-center gap-2"
+                onClick={onCobrarDespues}
+              >
+                <FaClock />
+                Cobrar después
+              </Button>
+            </div>
+          </Alert>
         ) : null}
 
         {tipo === "MESA" && !String(mesa || "").trim() ? (

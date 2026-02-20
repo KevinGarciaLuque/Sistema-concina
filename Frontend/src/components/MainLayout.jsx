@@ -18,6 +18,7 @@ import {
   FaUserShield,
   FaDatabase,
   FaAddressCard,
+  FaConciergeBell,
 } from "react-icons/fa";
 
 import { socket } from "../socket";
@@ -74,6 +75,12 @@ export default function MainLayout() {
             label: "POS",
             icon: <FaCashRegister />,
             anyPerm: ["POS.USAR"],
+          },
+          {
+            to: "/mesero",
+            label: "Mesero",
+            icon: <FaConciergeBell />,
+            anyPerm: ["MESERO.USAR"],
           },
           {
             to: "/cocina",
