@@ -1,4 +1,4 @@
-import { Badge, Button, Card, Form, InputGroup, Alert } from "react-bootstrap";
+import { Badge, Button, Card, Form, Alert } from "react-bootstrap";
 import { FaPaperPlane, FaReceipt, FaCashRegister, FaClock } from "react-icons/fa";
 
 function money(n) {
@@ -11,16 +11,9 @@ export default function CheckoutPanel({
   setTipo,
   mesa,
   setMesa,
-  clienteNombre,
-  setClienteNombre,
   notasOrden,
   setNotasOrden,
-  descuento,
-  setDescuento,
-  impuesto,
-  setImpuesto,
   subtotal,
-  total,
   carritoCount,
   busyCrear,
   onCrearOrden,
@@ -30,6 +23,53 @@ export default function CheckoutPanel({
 }) {
   const disableCrear = busyCrear || carritoCount === 0 || (tipo === "MESA" && !String(mesa || "").trim()) || ordenCreada?.codigo;
 
+  // Si la orden ya fue creada, mostrar solo opciones de cobro
+  if (ordenCreada?.codigo) {
+    return (
+      <Card className="shadow-sm border-0 rounded-4">
+        <Card.Body>
+          <Alert variant="success" className="mb-0">
+            <div className="d-flex align-items-center gap-2 mb-3">
+              <FaReceipt style={{ fontSize: 24 }} />
+              <div>
+                <div className="fw-bold" style={{ fontSize: 16 }}>Orden creada exitosamente</div>
+                <div style={{ fontSize: 13 }}>
+                  Código: <span className="fw-bold">{ordenCreada.codigo}</span> #{ordenCreada.id}
+                </div>
+                <div className="text-muted" style={{ fontSize: 12 }}>
+                  Subtotal: <span className="fw-bold">{money(subtotal)}</span> (ajustes al cobrar)
+                </div>
+              </div>
+            </div>
+            
+            <div className="d-flex gap-2 mt-3">
+              <Button
+                variant="success"
+                size="lg"
+                className="flex-fill d-inline-flex align-items-center justify-content-center gap-2"
+                onClick={onCobrarAhora}
+              >
+                <FaCashRegister />
+                Cobrar ahora
+              </Button>
+              
+              <Button
+                variant="outline-secondary"
+                size="lg"
+                className="flex-fill d-inline-flex align-items-center justify-content-center gap-2"
+                onClick={onCobrarDespues}
+              >
+                <FaClock />
+                Cobrar después
+              </Button>
+            </div>
+          </Alert>
+        </Card.Body>
+      </Card>
+    );
+  }
+
+  // Vista normal para crear la orden
   return (
     <Card className="shadow-sm border-0 rounded-4">
       <Card.Body>
@@ -67,15 +107,6 @@ export default function CheckoutPanel({
         ) : null}
 
         <Form.Group className="mb-2">
-          <Form.Label className="fw-semibold">Cliente (opcional)</Form.Label>
-          <Form.Control
-            value={clienteNombre}
-            onChange={(e) => setClienteNombre(e.target.value)}
-            placeholder="Nombre del cliente"
-          />
-        </Form.Group>
-
-        <Form.Group className="mb-2">
           <Form.Label className="fw-semibold">Notas de la orden (opcional)</Form.Label>
           <Form.Control
             as="textarea"
@@ -86,92 +117,28 @@ export default function CheckoutPanel({
           />
         </Form.Group>
 
-        <div className="d-flex gap-2">
-          <Form.Group className="mb-2" style={{ flex: 1 }}>
-            <Form.Label className="fw-semibold">Descuento</Form.Label>
-            <InputGroup>
-              <InputGroup.Text>L</InputGroup.Text>
-              <Form.Control
-                type="number"
-                step="0.01"
-                value={descuento}
-                onChange={(e) => setDescuento(e.target.value)}
-              />
-            </InputGroup>
-          </Form.Group>
-
-          <Form.Group className="mb-2" style={{ flex: 1 }}>
-            <Form.Label className="fw-semibold">Impuesto</Form.Label>
-            <InputGroup>
-              <InputGroup.Text>L</InputGroup.Text>
-              <Form.Control
-                type="number"
-                step="0.01"
-                value={impuesto}
-                onChange={(e) => setImpuesto(e.target.value)}
-              />
-            </InputGroup>
-          </Form.Group>
-        </div>
-
         <Card className="rounded-4 border mt-2">
           <Card.Body className="py-3">
             <div className="d-flex justify-content-between">
-              <span className="text-muted">Subtotal</span>
-              <span className="fw-bold">{money(subtotal)}</span>
+              <span className="text-muted">Subtotal productos</span>
+              <span className="fw-bold" style={{ fontSize: 18 }}>{money(subtotal)}</span>
             </div>
-            <div className="d-flex justify-content-between">
-              <span className="text-muted">Total</span>
-              <span className="fw-bold" style={{ fontSize: 18 }}>{money(total)}</span>
+            <div className="text-muted" style={{ fontSize: 11 }}>
+              * Descuentos e impuestos se aplicarán al cobrar
             </div>
           </Card.Body>
         </Card>
 
-        {!ordenCreada?.codigo ? (
-          <Button
-            className="w-100 mt-3 d-inline-flex align-items-center justify-content-center gap-2"
-            variant="success"
-            onClick={onCrearOrden}
-            disabled={disableCrear}
-          >
-            <FaPaperPlane />
-            Enviar a cocina (crear orden)
-          </Button>
-        ) : null}
-
-        {ordenCreada?.codigo ? (
-          <Alert variant="success" className="mt-3 mb-0">
-            <div className="d-flex align-items-center gap-2 mb-2">
-              <FaReceipt style={{ fontSize: 20 }} />
-              <div>
-                <div className="fw-bold">Orden creada exitosamente</div>
-                <div style={{ fontSize: 13 }}>
-                  Código: <span className="fw-semibold">{ordenCreada.codigo}</span> #{ordenCreada.id}
-                </div>
-              </div>
-            </div>
-            
-            <div className="d-flex gap-2 mt-3">
-              <Button
-                variant="success"
-                className="flex-fill d-inline-flex align-items-center justify-content-center gap-2"
-                onClick={onCobrarAhora}
-              >
-                <FaCashRegister />
-                Cobrar ahora
-              </Button>
-              
-              <Button
-                variant="outline-secondary"
-                className="flex-fill d-inline-flex align-items-center justify-content-center gap-2"
-                onClick={onCobrarDespues}
-              >
-                <FaClock />
-                Cobrar después
-              </Button>
-            </div>
-          </Alert>
-        ) : null}
+        <Button
+          className="w-100 mt-3 d-inline-flex align-items-center justify-content-center gap-2"
+          variant="success"
+          size="lg"
+          onClick={onCrearOrden}
+          disabled={disableCrear}
+        >
+          <FaPaperPlane />
+          Enviar a cocina (crear orden)
+        </Button>
 
         {tipo === "MESA" && !String(mesa || "").trim() ? (
           <div className="text-danger mt-2" style={{ fontSize: 12 }}>

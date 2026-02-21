@@ -89,6 +89,7 @@ io.on("connection", (socket) => {
 
     // Rooms por rol (ajusta si quieres)
     if (rol === "cocina") socket.join("cocina");
+    if (rol === "mesero") socket.join("cocina"); // ✅ Mesero necesita ver órdenes listas
     if (rol === "cajero" || rol === "admin" || rol === "supervisor") socket.join("caja");
     if (rol === "admin" || rol === "supervisor") socket.join("admin");
 

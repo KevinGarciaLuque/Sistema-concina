@@ -27,6 +27,7 @@ function emitOrden(req, payload) {
   if (!io) return;
   io.to("cocina").emit("ordenes:update", { ts: Date.now(), ...payload });
   io.to("caja").emit("ordenes:update", { ts: Date.now(), ...payload });
+  io.to("caja").emit("caja:update", { ts: Date.now(), ...payload }); // ✅ Notificar cambios de caja
   io.emit("ordenes:update", { ts: Date.now(), ...payload });
 }
 

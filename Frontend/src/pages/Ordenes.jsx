@@ -12,7 +12,6 @@ import {
   Modal,
   OverlayTrigger,
   Row,
-   Dropdown,
   Spinner,
   Table,
   Tooltip,
@@ -22,7 +21,6 @@ import {
   FaSearch,
   FaSyncAlt,
   FaEye,
-  FaEllipsisV,
   FaCheckCircle,
   FaBan,
   FaUndo,
@@ -397,96 +395,99 @@ export default function Ordenes() {
     }
   };
 
-const accionesDropdown = (o) => {
+const accionesBotones = (o) => {
   const est = normalizeEstado(o.estado);
   const disabled = busyId === o.id;
 
   return (
-    <Dropdown align="end">
-      <Dropdown.Toggle
-        size="sm"
-        variant="outline-dark"
-        className="d-inline-flex align-items-center gap-2"
-        disabled={disabled}
-      >
-        {disabled ? (
-          <Spinner size="sm" animation="border" />
-        ) : (
-          <FaEllipsisV />
-        )}
-        Acciones
-      </Dropdown.Toggle>
-
-      <Dropdown.Menu>
-        {/* Ver detalle */}
-        <Dropdown.Item
-          className="d-flex align-items-center gap-2"
-          onClick={() => openDetalle(o)}
-        >
-          <FaEye /> Ver detalle
-        </Dropdown.Item>
-
-        <Dropdown.Divider />
-
-        {/* NUEVA -> EN_PREPARACION */}
-        {est === "NUEVA" ? (
-          <Dropdown.Item
-            className="d-flex align-items-center gap-2"
-            onClick={() => cambiarEstado(o, "EN_PREPARACION")}
-            disabled={disabled}
+    <div className="d-flex gap-1 justify-content-end flex-wrap">
+      {disabled ? (
+        <Spinner size="sm" animation="border" />
+      ) : (
+        <>
+          {/* Ver detalle - siempre visible */}
+          <Button
+            size="sm"
+            variant="outline-secondary"
+            onClick={() => openDetalle(o)}
+            title="Ver detalle"
+            style={{ padding: "2px 6px", fontSize: "11px" }}
           >
-            <FaClock /> En preparación
-          </Dropdown.Item>
-        ) : null}
+            <FaEye size={11} />
+          </Button>
 
-        {/* EN_PREPARACION -> LISTA */}
-        {est === "EN_PREPARACION" ? (
-          <Dropdown.Item
-            className="d-flex align-items-center gap-2"
-            onClick={() => cambiarEstado(o, "LISTA")}
-            disabled={disabled}
-          >
-            <FaCheckCircle /> Marcar como lista
-          </Dropdown.Item>
-        ) : null}
-
-        {/* LISTA -> ENTREGADA */}
-        {est === "LISTA" ? (
-          <Dropdown.Item
-            className="d-flex align-items-center gap-2"
-            onClick={() => cambiarEstado(o, "ENTREGADA")}
-            disabled={disabled}
-          >
-            <FaCheckCircle /> Entregar orden
-          </Dropdown.Item>
-        ) : null}
-
-        {/* Regresar a NUEVA */}
-        {["EN_PREPARACION", "LISTA"].includes(est) ? (
-          <Dropdown.Item
-            className="d-flex align-items-center gap-2"
-            onClick={() => cambiarEstado(o, "NUEVA")}
-            disabled={disabled}
-          >
-            <FaUndo /> Regresar a nueva
-          </Dropdown.Item>
-        ) : null}
-
-        {/* Anular */}
-        {["ANULADA", "ENTREGADA"].includes(est) ? null : (
-          <>
-            <Dropdown.Divider />
-            <Dropdown.Item
-              className="d-flex align-items-center gap-2 text-danger"
-              onClick={() => cambiarEstado(o, "ANULADA")}
+          {/* NUEVA -> EN_PREPARACION */}
+          {est === "NUEVA" && (
+            <Button
+              size="sm"
+              variant="outline-warning"
+              onClick={() => cambiarEstado(o, "EN_PREPARACION")}
+              title="En preparación"
               disabled={disabled}
+              style={{ padding: "2px 6px", fontSize: "11px" }}
             >
-              <FaBan /> Anular orden
-            </Dropdown.Item>
-          </>
-        )}
-      </Dropdown.Menu>
-    </Dropdown>
+              <FaClock size={11} />
+            </Button>
+          )}
+
+          {/* EN_PREPARACION -> LISTA */}
+          {est === "EN_PREPARACION" && (
+            <Button
+              size="sm"
+              variant="outline-success"
+              onClick={() => cambiarEstado(o, "LISTA")}
+              title="Marcar como lista"
+              disabled={disabled}
+              style={{ padding: "2px 6px", fontSize: "11px" }}
+            >
+              <FaCheckCircle size={11} />
+            </Button>
+          )}
+
+          {/* LISTA -> ENTREGADA */}
+          {est === "LISTA" && (
+            <Button
+              size="sm"
+              variant="outline-dark"
+              onClick={() => cambiarEstado(o, "ENTREGADA")}
+              title="Entregar orden"
+              disabled={disabled}
+              style={{ padding: "2px 6px", fontSize: "11px" }}
+            >
+              <FaCheckCircle size={11} />
+            </Button>
+          )}
+
+          {/* Regresar a NUEVA */}
+          {["EN_PREPARACION", "LISTA"].includes(est) && (
+            <Button
+              size="sm"
+              variant="outline-info"
+              onClick={() => cambiarEstado(o, "NUEVA")}
+              title="Regresar a nueva"
+              disabled={disabled}
+              style={{ padding: "2px 6px", fontSize: "11px" }}
+            >
+              <FaUndo size={11} />
+            </Button>
+          )}
+
+          {/* Anular */}
+          {!["ANULADA", "ENTREGADA"].includes(est) && (
+            <Button
+              size="sm"
+              variant="outline-danger"
+              onClick={() => cambiarEstado(o, "ANULADA")}
+              title="Anular orden"
+              disabled={disabled}
+              style={{ padding: "2px 6px", fontSize: "11px" }}
+            >
+              <FaBan size={11} />
+            </Button>
+          )}
+        </>
+      )}
+    </div>
   );
 };
 
@@ -736,7 +737,7 @@ const accionesDropdown = (o) => {
                     💰 Cobrar
                   </Button>
                 ) : (
-                  acciones(o)
+                  accionesBotones(o)
                 )}
               </div>
             </Card.Body>
@@ -756,16 +757,16 @@ const accionesDropdown = (o) => {
         <Table hover size="sm" className="mb-0 align-middle w-100">
           <thead className="table-light sticky-top">
             <tr className="small text-uppercase">
-              <th className="text-nowrap">Código</th>
-              <th className="text-nowrap">Fecha</th>
-              {vista === "pendiente_cobro" ? <th className="text-nowrap">Mesero</th> : null}
-              <th className="text-nowrap">Tipo</th>
-              <th className="text-nowrap text-center">Mesa</th>
-              {vista === "pendiente_cobro" ? <th className="text-nowrap text-center">Tiempo</th> : null}
-              <th className="text-nowrap">Estado</th>
-              <th className="text-nowrap text-center">Items</th>
-              <th className="text-nowrap text-end">Total</th>
-              <th className="text-nowrap text-end">Acciones</th>
+              <th className="text-nowrap" style={{ width: "100px" }}>Código</th>
+              <th className="text-nowrap" style={{ width: "140px" }}>Fecha</th>
+              {vista === "pendiente_cobro" ? <th className="text-nowrap" style={{ width: "100px" }}>Mesero</th> : null}
+              <th className="text-nowrap" style={{ width: "80px" }}>Tipo</th>
+              <th className="text-nowrap text-center" style={{ width: "60px" }}>Mesa</th>
+              {vista === "pendiente_cobro" ? <th className="text-nowrap text-center" style={{ width: "80px" }}>Tiempo</th> : null}
+              <th className="text-nowrap" style={{ width: "110px" }}>Estado</th>
+              <th className="text-nowrap text-center" style={{ width: "60px" }}>Items</th>
+              <th className="text-nowrap text-end" style={{ width: "90px" }}>Total</th>
+              <th className="text-nowrap text-end" style={{ minWidth: "140px" }}>Acciones</th>
             </tr>
           </thead>
 
@@ -831,7 +832,6 @@ const accionesDropdown = (o) => {
                     {o.total == null ? "—" : money(o.total)}
                   </td>
 
-                  {/* ✅ Si quieres que nunca ensanche: usa accionesDropdown(o) */}
                   <td className="text-end text-nowrap">
                     {vista === "pendiente_cobro" ? (
                       <Button
@@ -841,11 +841,12 @@ const accionesDropdown = (o) => {
                           setOrdenCobro(o);
                           setShowCobro(true);
                         }}
+                        style={{ padding: "4px 8px", fontSize: "11px" }}
                       >
                         💰 Cobrar
                       </Button>
                     ) : (
-                      isMobile ? acciones(o) : accionesDropdown(o)
+                      accionesBotones(o)
                     )}
                   </td>
                 </tr>

@@ -57,6 +57,7 @@ function getIO(req) {
 function emitOrden(req, payload) {
   const io = getIO(req);
   if (!io) return;
+  // Emitir a cocina y caja sin logging excesivo
   io.to("cocina").emit("ordenes:update", { ts: Date.now(), ...payload });
   io.to("caja").emit("ordenes:update", { ts: Date.now(), ...payload });
 }
@@ -84,7 +85,7 @@ router.get(
   requireAuth,
   allowRoles("admin", "supervisor", "cajero", "cocina"),
   asyncHandler(async (req, res) => {
-    const { estado, tipo, from, to, q, pendiente_cobro, sin_facturar } = req.query;
+    const { estado, tipo, desde, hasta, from, to, q, pendiente_cobro, sin_facturar } = req.query;
 
     const where = [];
     const params = [];
@@ -123,14 +124,18 @@ router.get(
       }
     }
 
-    if (from) {
+    // Soportar tanto desde/hasta como from/to para compatibilidad
+    const fechaDesde = desde || from;
+    const fechaHasta = hasta || to;
+
+    if (fechaDesde) {
       where.push("o.fecha >= ?");
-      params.push(String(from));
+      params.push(String(fechaDesde));
     }
 
-    if (to) {
+    if (fechaHasta) {
       where.push("o.fecha <= ?");
-      params.push(String(to));
+      params.push(String(fechaHasta));
     }
 
     if (q) {
@@ -171,10 +176,12 @@ router.get(
       params
     );
 
-    // Parsear productos desde JSON string
+    // Parsear productos desde JSON (si es string) o usar directamente si ya es objeto
     const rowsWithProducts = rows.map(row => ({
       ...row,
-      productos: row.productos ? JSON.parse(row.productos) : []
+      productos: row.productos 
+        ? (typeof row.productos === 'string' ? JSON.parse(row.productos) : row.productos)
+        : []
     }));
 
     res.json({ ok: true, data: rowsWithProducts });

@@ -7,6 +7,11 @@ admin123
 
 
 
+
+
+
+
+
 teminar procesos de la consola 
 
 Get-NetTCPConnection -LocalPort 4000 -State Listen | Select-Object -ExpandProperty OwningProcess

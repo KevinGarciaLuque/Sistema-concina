@@ -1,5 +1,5 @@
 import { Button, Card, Form } from "react-bootstrap";
-import { FaMinus, FaPlus, FaTrash, FaPen } from "react-icons/fa";
+import { FaMinus, FaPlus, FaTrash, FaPen, FaBroom } from "react-icons/fa";
 
 function money(n) {
   const v = Number(n || 0);
@@ -14,6 +14,7 @@ export default function CarritoPOS({
   setQty,
   setNotasItem,
   onEditItem,
+  onClearCart,
 }) {
   const lineTotal = (it) => {
     const extra = (it.opciones || []).reduce((a, o) => a + Number(o.precio_extra || 0), 0);
@@ -24,16 +25,28 @@ export default function CarritoPOS({
   return (
     <Card className="shadow-sm border-0 rounded-4">
       <Card.Body>
-        <div className="d-flex align-items-center justify-content-between">
+        <div className="d-flex align-items-center justify-content-between mb-2">
           <div>
             <div className="fw-bold">Carrito</div>
             <div className="text-muted" style={{ fontSize: 12 }}>
               Edita cantidades y modificadores
             </div>
           </div>
+          {carrito.length > 0 && (
+            <Button
+              size="sm"
+              variant="outline-danger"
+              onClick={onClearCart}
+              className="d-inline-flex align-items-center gap-1"
+              title="Limpiar carrito"
+            >
+              <FaBroom />
+              <span className="d-none d-md-inline">Limpiar</span>
+            </Button>
+          )}
         </div>
 
-        <hr />
+        <hr className="my-2" />
 
         {carrito.length === 0 ? (
           <div className="text-muted">Tu carrito está vacío.</div>

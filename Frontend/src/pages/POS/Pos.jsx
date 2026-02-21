@@ -7,6 +7,7 @@ import {
   Col,
   Container,
   Form,
+  InputGroup,
   Offcanvas,
   Row,
   Spinner,
@@ -69,8 +70,10 @@ export default function Pos() {
   // ===== order meta =====
   const [tipo, setTipo] = useState("LLEVAR"); // MESA | LLEVAR | DELIVERY
   const [mesa, setMesa] = useState("");
-  const [clienteNombre, setClienteNombre] = useState("");
   const [notasOrden, setNotasOrden] = useState("");
+  
+  // ✅ Cliente, descuento e impuesto se manejan al cobrar
+  const [clienteNombreCobro, setClienteNombreCobro] = useState("");
   const [descuento, setDescuento] = useState(0);
   const [impuesto, setImpuesto] = useState(0);
 
@@ -104,10 +107,8 @@ export default function Pos() {
     );
   }, [carrito]);
 
-  const total = useMemo(
-    () => round2(subtotal - Number(descuento || 0) + Number(impuesto || 0)),
-    [subtotal, descuento, impuesto],
-  );
+  // ✅ Total sin descuentos/impuestos (se calculan al cobrar)
+  const total = subtotal;
 
   // ✅ NUEVO: snapshot de venta (para cobrar aunque ya limpies el carrito)
   const [ventaDraft, setVentaDraft] = useState(null);
@@ -392,6 +393,13 @@ export default function Pos() {
 
   const handleCobrarAhora = () => {
     setShowCheckout(false);
+    // Resetear campos de cobro cuando abre el modal
+    setClienteNombreCobro("");
+    setUsarClienteRtn(false);
+    setClienteSeleccionado(null);
+    setDescuento(0);
+    setImpuesto(0);
+    setPagoState(null);
     setShowCobro(true);
   };
 
@@ -429,12 +437,12 @@ export default function Pos() {
       });
 
     const payload = {
-      cliente_nombre: String(clienteNombre || "").trim() || null,
+      cliente_nombre: null, // ✅ Se asignará al cobrar
       tipo,
       mesa: tipo === "MESA" ? String(mesa || "").trim() : null,
       notas: String(notasOrden || "").trim() || null,
-      descuento: Number(descuento || 0),
-      impuesto: Number(impuesto || 0),
+      descuento: 0, // ✅ Se aplicará al cobrar
+      impuesto: 0, // ✅ Se aplicará al cobrar
       items: carrito.map((it) => ({
         producto_id: Number(it.producto_id),
         cantidad: Number(it.cantidad || 1),
@@ -452,24 +460,26 @@ export default function Pos() {
       const ordenObj = { id: data?.id, codigo: data?.codigo };
       setOrdenCreada(ordenObj);
 
-      // ✅ snapshot para cobrar aunque limpiemos el carrito
+      // ✅ snapshot para cobrar (sin descuentos/impuestos aún)
       setVentaDraft({
         orden: ordenObj,
-        cliente_nombre: String(clienteNombre || "").trim() || null,
+        cliente_nombre: null, // Se asignará al cobrar
         subtotal,
-        descuento: Number(descuento || 0),
-        impuesto: Number(impuesto || 0),
-        total,
+        descuento: 0,
+        impuesto: 0,
+        total: subtotal, // Total base sin ajustes
       });
 
       // reset POS (se queda la orden creada y draft listo para cobrar)
       setCarrito([]);
-      setClienteNombre("");
       setMesa("");
       setNotasOrden("");
+      setTipo("LLEVAR");
+      
+      // Resetear campos de cobro
+      setClienteNombreCobro("");
       setDescuento(0);
       setImpuesto(0);
-      setTipo("LLEVAR");
 
       setMsg({
         type: "success",
@@ -517,24 +527,35 @@ export default function Pos() {
       });
     }
 
+    // ✅ Calcular total final con descuentos e impuestos
+    const subtotalBase = ventaDraft.subtotal;
+    const descuentoFinal = Number(descuento || 0);
+    const impuestoFinal = Number(impuesto || 0);
+    const totalFinal = round2(subtotalBase - descuentoFinal + impuestoFinal);
+
+    // ✅ Determinar nombre del cliente
+    let nombreClienteFinal = null;
+    if (usarClienteRtn && clienteSeleccionado?.nombre) {
+      nombreClienteFinal = clienteSeleccionado.nombre;
+    } else if (clienteNombreCobro.trim()) {
+      nombreClienteFinal = clienteNombreCobro.trim();
+    }
+
     setBusyCobrar(true);
     try {
       const payload = {
         orden_id: ventaDraft.orden.id,
         caja_sesion_id: cajaSesion.id,
-        // ⚠️ Con CAI: ya NO enviamos numero_factura, se genera automáticamente en backend
 
-        cliente_nombre: usarClienteRtn && clienteSeleccionado?.nombre 
-          ? clienteSeleccionado.nombre 
-          : ventaDraft.cliente_nombre,
+        cliente_nombre: nombreClienteFinal,
         cliente_rtn: usarClienteRtn && clienteSeleccionado?.rtn ? clienteSeleccionado.rtn : null,
         cliente_telefono: usarClienteRtn && clienteSeleccionado?.telefono ? clienteSeleccionado.telefono : null,
         cliente_direccion: usarClienteRtn && clienteSeleccionado?.direccion ? clienteSeleccionado.direccion : null,
 
-        subtotal: ventaDraft.subtotal,
-        descuento: ventaDraft.descuento,
-        impuesto: ventaDraft.impuesto,
-        total: ventaDraft.total,
+        subtotal: subtotalBase,
+        descuento: descuentoFinal,
+        impuesto: impuestoFinal,
+        total: totalFinal,
 
         pagos: pagoState.pagos,
       };
@@ -557,6 +578,13 @@ export default function Pos() {
       setShowCobro(false);
       setVentaDraft(null);
       setOrdenCreada(null);
+      
+      // Limpiar campos de cobro
+      setClienteNombreCobro("");
+      setDescuento(0);
+      setImpuesto(0);
+      setUsarClienteRtn(false);
+      setClienteSeleccionado(null);
 
       // ✅ NUEVO: Recargar órdenes pendientes después de cobrar
       await loadOrdenesPendientes();
@@ -575,7 +603,15 @@ export default function Pos() {
     }
   };
 
-  const totalCobro = Number(ventaDraft?.total ?? 0);
+  // ✅ Calcular total con descuentos e impuestos en tiempo real
+  const totalCobro = useMemo(() => {
+    if (!ventaDraft?.subtotal) return 0;
+    return round2(
+      Number(ventaDraft.subtotal) - 
+      Number(descuento || 0) + 
+      Number(impuesto || 0)
+    );
+  }, [ventaDraft, descuento, impuesto]);
 
   // ✅ Cargar clientes con RTN cuando se abre el modal de cobro
   useEffect(() => {
@@ -614,7 +650,6 @@ export default function Pos() {
   const handleCobrarOrdenPendiente = async (orden) => {
     try {
       // Usar directamente los datos de la orden que ya tenemos
-      // La tabla ya incluye todos los campos necesarios
       setVentaDraft({
         orden: {
           id: orden.id,
@@ -622,12 +657,15 @@ export default function Pos() {
         },
         cliente_nombre: orden.cliente_nombre || null,
         subtotal: Number(orden.subtotal || 0),
-        descuento: Number(orden.descuento || 0),
-        impuesto: Number(orden.impuesto || 0),
-        total: Number(orden.total || 0),
+        descuento: 0, // Resetear para que usuario decida
+        impuesto: 0, // Resetear para que usuario decida
+        total: Number(orden.subtotal || 0), // Solo subtotal, descuento/impuesto se aplicarán
       });
 
-      // Resetear estados de pago
+      // Resetear estados de pago y cobro
+      setClienteNombreCobro(orden.cliente_nombre || "");
+      setDescuento(0);
+      setImpuesto(0);
       setPagoState(null);
       setUsarClienteRtn(false);
       setClienteSeleccionado(null);
@@ -770,6 +808,7 @@ export default function Pos() {
                 setQty={setQty}
                 setNotasItem={setNotasItem}
                 onEditItem={editItem}
+                onClearCart={() => setCarrito([])}
               />
 
               {/* Botón para finalizar orden */}
@@ -781,7 +820,7 @@ export default function Pos() {
                 disabled={carrito.length === 0}
               >
                 <FaPaperPlane className="me-2" />
-                Finalizar Orden
+                Tomar Orden
               </Button>
             </div>
           </Col>
@@ -819,6 +858,7 @@ export default function Pos() {
             setQty={setQty}
             setNotasItem={setNotasItem}
             onEditItem={editItem}
+            onClearCart={() => setCarrito([])}
           />
 
           <Button
@@ -832,7 +872,7 @@ export default function Pos() {
             disabled={carrito.length === 0}
           >
             <FaPaperPlane className="me-2" />
-            Finalizar Orden
+            Tomar Orden
           </Button>
         </Offcanvas.Body>
       </Offcanvas>
@@ -854,76 +894,127 @@ export default function Pos() {
         show={showCobro}
         onHide={() => setShowCobro(false)}
         centered
-        size="lg"
+        size="md"
         backdrop="static"
       >
-        <Modal.Header closeButton>
-          <Modal.Title className="fw-bold">Cobrar e imprimir</Modal.Title>
+        <Modal.Header closeButton className="py-2">
+          <Modal.Title style={{ fontSize: 16 }}>
+            💰 Cobrar e imprimir
+          </Modal.Title>
         </Modal.Header>
 
-        <Modal.Body>
-          <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-            <div className="text-muted">
+        <Modal.Body className="p-3">
+          <div className="d-flex align-items-center justify-content-between mb-2 pb-2 border-bottom">
+            <div style={{ fontSize: 12 }}>
               Orden: <b>{ventaDraft?.orden?.codigo || "—"}</b>
             </div>
-            <div className="fw-bold">
-              Total: L {Number(totalCobro || 0).toFixed(2)}
+            <div className="fw-bold" style={{ fontSize: 14 }}>
+              L {Number(totalCobro || 0).toFixed(2)}
             </div>
           </div>
 
-          <div className="text-muted mb-3" style={{ fontSize: 12 }}>
-            Caja:{" "}
-            {cajaSesion?.id ? (
-              <b>ABIERTA (ID {cajaSesion.id})</b>
-            ) : (
-              <b className="text-danger">CERRADA / SIN SESIÓN</b>
-            )}
+          {/* ✅ Sección de totales y ajustes */}
+          <div className="mb-2 p-2 border rounded-3 bg-light">
+            <div className="fw-bold mb-2" style={{ fontSize: 12 }}>
+              Totales
+            </div>
+
+            <div className="d-flex justify-content-between mb-1" style={{ fontSize: 12 }}>
+              <span className="text-muted">Subtotal:</span>
+              <span className="fw-semibold">L {Number(ventaDraft?.subtotal || 0).toFixed(2)}</span>
+            </div>
+
+            <div className="d-flex gap-2 mb-1">
+              <Form.Group style={{ flex: 1 }}>
+                <Form.Label style={{ fontSize: 11, marginBottom: 2 }}>Desc.</Form.Label>
+                <InputGroup size="sm">
+                  <InputGroup.Text style={{ fontSize: 11, padding: "2px 6px" }}>L</InputGroup.Text>
+                  <Form.Control
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={descuento}
+                    onChange={(e) => setDescuento(e.target.value)}
+                    style={{ fontSize: 12 }}
+                  />
+                </InputGroup>
+              </Form.Group>
+
+              <Form.Group style={{ flex: 1 }}>
+                <Form.Label style={{ fontSize: 11, marginBottom: 2 }}>Imp.</Form.Label>
+                <InputGroup size="sm">
+                  <InputGroup.Text style={{ fontSize: 11, padding: "2px 6px" }}>L</InputGroup.Text>
+                  <Form.Control
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={impuesto}
+                    onChange={(e) => setImpuesto(e.target.value)}
+                    style={{ fontSize: 12 }}
+                  />
+                </InputGroup>
+              </Form.Group>
+            </div>
+
+            <div className="d-flex justify-content-between pt-1 border-top">
+              <span className="fw-bold" style={{ fontSize: 12 }}>TOTAL:</span>
+              <span className="fw-bold" style={{ fontSize: 16, color: "#198754" }}>
+                L {Number(totalCobro || 0).toFixed(2)}
+              </span>
+            </div>
           </div>
 
-          {/* ✅ NUEVO: Selector de cliente con RTN */}
-          <div className="mb-4">
-            <div className="d-flex align-items-center gap-2 mb-3">
-              <div 
-                className="rounded-3 d-inline-flex align-items-center justify-content-center"
-                style={{ width: 36, height: 36, background: "rgba(13,110,253,.12)" }}
-              >
-                <FaUserTag size={18} color="#0d6efd" />
-              </div>
-              <div className="flex-grow-1">
-                <div className="fw-bold" style={{ fontSize: 15 }}>Cliente con RTN (Fiscal)</div>
-                <div className="text-muted" style={{ fontSize: 11 }}>
-                  Opcional - Solo si requiere factura con RTN
-                </div>
+          {/* ✅ Información del cliente */}
+          <div className="mb-2">
+            <div className="d-flex align-items-center justify-content-between mb-1">
+              <div className="fw-bold" style={{ fontSize: 12 }}>
+                👤 Cliente
               </div>
               <Form.Check
                 type="switch"
                 id="switch-usar-rtn-cobro"
+                label={<span style={{ fontSize: 11 }}>Fiscal</span>}
                 checked={usarClienteRtn}
                 onChange={(e) => {
-                  setUsarClienteRtn(e.target.checked);
-                  if (!e.target.checked) setClienteSeleccionado(null);
+                  const checked = e.target.checked;
+                  setUsarClienteRtn(checked);
+                  if (checked) {
+                    setClienteNombreCobro("");
+                  } else {
+                    setClienteSeleccionado(null);
+                  }
                 }}
-                style={{ transform: "scale(1.2)" }}
+                style={{ fontSize: 11 }}
               />
             </div>
+            
+            {!usarClienteRtn && (
+              <Form.Group className="mb-0">
+                <Form.Control
+                  size="sm"
+                  value={clienteNombreCobro}
+                  onChange={(e) => setClienteNombreCobro(e.target.value)}
+                  placeholder="Nombre (opcional)"
+                  disabled={usarClienteRtn}
+                  style={{ fontSize: 12 }}
+                />
+              </Form.Group>
+            )}
 
             {usarClienteRtn && (
-              <div className="p-3 border rounded-4 bg-light">
+              <div className="p-2 border rounded-2 bg-light">
                 {loadingClientesRtn ? (
-                  <div className="text-center py-3">
-                    <Spinner size="sm" animation="border" className="me-2" />
-                    <span className="text-muted">Cargando clientes...</span>
+                  <div className="text-center py-2">
+                    <Spinner size="sm" animation="border" />
                   </div>
                 ) : (
                   <>
                     <Form.Group className="mb-0">
-                      <Form.Label className="fw-semibold d-flex align-items-center gap-2" style={{ fontSize: 13 }}>
-                        <FaIdCard /> Seleccionar Cliente Registrado
-                      </Form.Label>
                       <Form.Select
+                        size="sm"
                         value={clienteSeleccionado?.id || ""}
                         onChange={handleSeleccionarClienteRtn}
-                        style={{ fontSize: 14 }}
+                        style={{ fontSize: 12 }}
                       >
                         <option value="">Seleccionar cliente con RTN...</option>
                         {clientesConRtn.map((c) => (
@@ -935,40 +1026,19 @@ export default function Pos() {
                     </Form.Group>
 
                     {clienteSeleccionado && (
-                      <div className="mt-3 p-3 rounded-3 border" style={{ background: "#fff" }}>
-                        <div className="fw-semibold mb-2" style={{ fontSize: 12, color: "#6c757d" }}>
-                          DATOS DEL CLIENTE
+                      <div className="mt-2 p-2 rounded-2 border" style={{ background: "#fff", fontSize: 11 }}>
+                        <div className="text-muted mb-1">
+                          <b>{clienteSeleccionado.nombre}</b>
                         </div>
-                        <div className="d-flex flex-column gap-1" style={{ fontSize: 13 }}>
-                          <div>
-                            <span className="text-muted">Nombre:</span>{" "}
-                            <span className="fw-semibold">{clienteSeleccionado.nombre}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted">RTN:</span>{" "}
-                            <span className="fw-semibold font-monospace">{clienteSeleccionado.rtn}</span>
-                          </div>
-                          {clienteSeleccionado.telefono && (
-                            <div>
-                              <span className="text-muted">Teléfono:</span>{" "}
-                              <span className="fw-semibold">{clienteSeleccionado.telefono}</span>
-                            </div>
-                          )}
-                          {clienteSeleccionado.direccion && (
-                            <div>
-                              <span className="text-muted">Dirección:</span>{" "}
-                              <span className="fw-semibold">{clienteSeleccionado.direccion}</span>
-                            </div>
-                          )}
+                        <div className="text-muted">
+                          RTN: {clienteSeleccionado.rtn}
                         </div>
                       </div>
                     )}
 
                     {clientesConRtn.length === 0 && (
-                      <div className="text-center text-muted py-2" style={{ fontSize: 12 }}>
-                        No hay clientes con RTN registrados.
-                        <br />
-                        <span className="text-primary">Ve a Admin &gt; Clientes para agregar</span>
+                      <div className="text-center text-muted py-1" style={{ fontSize: 11 }}>
+                        Sin clientes RTN registrados
                       </div>
                     )}
                   </>
@@ -979,7 +1049,7 @@ export default function Pos() {
 
           {/* Método de pago */}
           <div className="mb-0">
-            <div className="fw-bold mb-2" style={{ fontSize: 15 }}>Método de pago</div>
+            <div className="fw-bold mb-1" style={{ fontSize: 12 }}>💳 Pago</div>
             <MetodosPagos
               total={totalCobro}
               value={pagoState}
@@ -988,8 +1058,9 @@ export default function Pos() {
           </div>
         </Modal.Body>
 
-        <Modal.Footer>
+        <Modal.Footer className="py-2">
           <Button
+            size="sm"
             variant="outline-secondary"
             onClick={() => setShowCobro(false)}
             disabled={busyCobrar}
@@ -997,6 +1068,7 @@ export default function Pos() {
             Cerrar
           </Button>
           <Button
+            size="sm"
             variant="success"
             onClick={cobrarEImprimir}
             disabled={busyCobrar || !pagoState?.isValid || !cajaSesion?.id}
@@ -1044,26 +1116,88 @@ export default function Pos() {
       ) : null}
 
       {/* Modal para finalizar orden */}
-      <Modal show={showCheckout} onHide={handleCloseCheckout} size="lg" centered>
-        <Modal.Header closeButton>
-          <Modal.Title className="fw-bold">Finalizar Orden</Modal.Title>
+      <Modal show={showCheckout} onHide={handleCloseCheckout} size="md" centered backdrop="static">
+        <Modal.Header closeButton className="py-2">
+          <Modal.Title style={{ fontSize: 16 }}>
+            {ordenCreada?.codigo ? "¿Cómo desea continuar?" : "📋 Tomar Orden"}
+          </Modal.Title>
         </Modal.Header>
-        <Modal.Body>
+        <Modal.Body className="p-3">
+          {/* Detalle de productos en la orden */}
+          {!ordenCreada && carrito.length > 0 && (
+            <div className="mb-2 p-2 border rounded-2 bg-light">
+              <div className="fw-bold mb-2" style={{ fontSize: 12 }}>
+                🛒 Detalle ({carrito.length})
+              </div>
+              
+              <div className="d-flex flex-column gap-1">
+                {carrito.map((item, idx) => {
+                  // Calcular precio con modificadores
+                  const precioBase = Number(item.precio_unitario || 0);
+                  const extraMods = (item.opciones || []).reduce(
+                    (sum, op) => sum + Number(op.precio_extra || 0),
+                    0
+                  );
+                  const precioConMods = precioBase + extraMods;
+                  const subtotalLinea = precioConMods * Number(item.cantidad || 1);
+                  
+                  return (
+                    <div key={idx} className="p-2 border rounded-2 bg-white" style={{ fontSize: 12 }}>
+                      <div className="d-flex justify-content-between align-items-start">
+                        <div className="flex-grow-1">
+                          <div className="fw-semibold">
+                            {item.cantidad}x {item.producto_nombre}
+                          </div>
+                          {/* Modificadores en la misma línea */}
+                          {item.opciones && item.opciones.length > 0 && (
+                            <div className="text-muted" style={{ fontSize: 10 }}>
+                              + {item.opciones.map((op, i) => (
+                                <span key={i}>
+                                  {op.nombre}
+                                  {op.precio_extra > 0 && ` (+L${Number(op.precio_extra).toFixed(2)})`}
+                                  {i < item.opciones.length - 1 && ', '}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {/* Notas más compactas */}
+                          {item.notas && (
+                            <div className="text-muted fst-italic" style={{ fontSize: 10 }}>
+                              📝 {item.notas}
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="text-end ms-2">
+                          <div className="fw-bold" style={{ fontSize: 12 }}>
+                            L {subtotalLinea.toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              <hr className="my-2" />
+              
+              <div className="d-flex justify-content-between align-items-center">
+                <span className="fw-bold" style={{ fontSize: 12 }}>Subtotal:</span>
+                <span className="fw-bold" style={{ fontSize: 14, color: "#198754" }}>
+                  L {Number(subtotal || 0).toFixed(2)}
+                </span>
+              </div>
+            </div>
+          )}
+
           <CheckoutPanel
             tipo={tipo}
             setTipo={setTipo}
             mesa={mesa}
             setMesa={setMesa}
-            clienteNombre={clienteNombre}
-            setClienteNombre={setClienteNombre}
             notasOrden={notasOrden}
             setNotasOrden={setNotasOrden}
-            descuento={descuento}
-            setDescuento={setDescuento}
-            impuesto={impuesto}
-            setImpuesto={setImpuesto}
             subtotal={subtotal}
-            total={total}
             carritoCount={carrito.length}
             busyCrear={busyCrear}
             onCrearOrden={crearOrden}
