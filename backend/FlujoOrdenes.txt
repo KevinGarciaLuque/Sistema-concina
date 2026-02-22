@@ -1,0 +1,28 @@
+Opción C - Recomendada
+Razones:
+1. MESA → Automático al cobrar
+
+✅ No hay "entrega" física al cliente
+✅ La comida ya está en la mesa
+✅ Al cobrar = fin del proceso
+✅ Reduce pasos innecesarios
+2. LLEVAR → Automático al cobrar
+
+✅ Cliente espera en el local
+✅ Al cobrar = entrega inmediata
+✅ Se lleva la orden en ese momento
+✅ Proceso fluido y rápido
+3. DELIVERY → Manual después de cobrar
+
+✅ Cobras pero motorista aún no entrega
+✅ Necesitas saber qué está pendiente de entregar
+✅ Control de entregas en ruta
+✅ Cajero o repartidor marca "Entregado" cuando confirma 
+
+
+POS (Cajero) → Al cobrar:
+├─ MESA/LLEVAR → Estado = ENTREGADA + Facturada
+└─ DELIVERY → Estado = LISTA + Facturada (pendiente entregar)
+
+Órdenes (Monitor) → Botón "Entregar":
+└─ Solo visible para órdenes DELIVERY facturadas

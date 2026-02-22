@@ -176,6 +176,35 @@ export default function CrearOrdenModal({ show, onHide, mesa, onOrdenCreada }) {
 
   // Agregar producto con modificadores
   const addProducto = async (producto) => {
+    if (!producto) return;
+
+    // ✅ Verificar si el producto tiene modificadores primero
+    try {
+      const { data } = await api.get(`/modificadores/por-producto/${producto.id}`);
+      const mods = data?.data || data?.modificadores || data || [];
+      
+      // Si NO tiene modificadores, agregarlo directamente al carrito
+      if (!mods || mods.length === 0) {
+        const nuevoItem = {
+          id: uid(),
+          producto_id: Number(producto.id),
+          producto_nombre: String(producto.nombre),
+          precio_unitario: Number(producto.precio || 0),
+          cantidad: 1,
+          notas: "",
+          opciones: [],
+        };
+        
+        setCarrito((prev) => [...prev, nuevoItem]);
+        setMsg({ type: "success", text: `✅ ${producto.nombre} agregado` });
+        setTimeout(() => setMsg({ type: "", text: "" }), 2000);
+        return;
+      }
+    } catch (e) {
+      console.error("Error verificando modificadores:", e);
+    }
+
+    // Si tiene modificadores, abrir modal
     setModsProducto(null);
     setEditItemId(null);
     setModsLoading(true);
@@ -183,7 +212,6 @@ export default function CrearOrdenModal({ show, onHide, mesa, onOrdenCreada }) {
 
     try {
       const { data } = await api.get(`/modificadores/por-producto/${producto.id}`);
-      // Backend devuelve { ok: true, data: [...] }
       const mods = data?.data || data?.modificadores || data || [];
 
       setModsProducto({
@@ -243,7 +271,7 @@ export default function CrearOrdenModal({ show, onHide, mesa, onOrdenCreada }) {
     setModsProducto(null);
   };
 
-  // Crear orden
+  // Crear orden o agregar a orden existente
   const crearOrden = async () => {
     setMsg({ type: "", text: "" });
 
@@ -255,35 +283,77 @@ export default function CrearOrdenModal({ show, onHide, mesa, onOrdenCreada }) {
       return setMsg({ type: "danger", text: "No se especificó la mesa." });
     }
 
-    const payload = {
-      cliente_nombre: String(clienteNombre || "").trim() || null,
-      tipo: "MESA",
-      mesa: String(mesa.numero),
-      notas: String(notasOrden || "").trim() || null,
-      descuento: 0,
-      impuesto: 0,
-      items: carrito.map((it) => ({
+    setBusyCrear(true);
+    try {
+      // ✅ NUEVO: Verificar si la mesa ya tiene una orden activa (sin facturar)
+      const { data: ordenesData } = await api.get("/ordenes", {
+        params: {
+          sin_facturar: 1,
+          tipo: "MESA",
+        },
+      });
+      
+      const ordenes = ordenesData?.data || ordenesData?.rows || ordenesData || [];
+      const ordenExistente = ordenes.find(
+        (o) => String(o.mesa) === String(mesa.numero) && 
+               o.estado !== "ANULADA" &&
+               o.estado !== "ENTREGADA"
+      );
+
+      const itemsPayload = carrito.map((it) => ({
         producto_id: Number(it.producto_id),
         cantidad: Number(it.cantidad || 1),
         notas: String(it.notas || "").trim() || null,
         opciones: (it.opciones || []).map((o) => ({
           opcion_id: Number(o.opcion_id),
         })),
-      })),
-    };
+      }));
 
-    setBusyCrear(true);
-    try {
-      const { data } = await api.post("/ordenes", payload);
+      let data;
 
-      // Limpiar y cerrar
+      if (ordenExistente) {
+        // ✅ Agregar items a orden existente
+        const response = await api.post(`/ordenes/${ordenExistente.id}/items`, {
+          items: itemsPayload,
+        });
+        data = response.data;
+        
+        setMsg({ 
+          type: "success", 
+          text: `✅ Items agregados a orden ${ordenExistente.codigo} existente` 
+        });
+      } else {
+        // ✅ Crear nueva orden
+        const payload = {
+          cliente_nombre: String(clienteNombre || "").trim() || null,
+          tipo: "MESA",
+          mesa: String(mesa.numero),
+          notas: String(notasOrden || "").trim() || null,
+          descuento: 0,
+          impuesto: 0,
+          items: itemsPayload,
+        };
+        
+        const response = await api.post("/ordenes", payload);
+        data = response.data;
+        
+        setMsg({ 
+          type: "success", 
+          text: `✅ Orden ${data.codigo || "#"} creada exitosamente` 
+        });
+      }
+
+      // Limpiar y cerrar con delay para mostrar mensaje
       setCarrito([]);
       setClienteNombre("");
       setNotasOrden("");
       setQ("");
       setCategoriaId("");
 
-      onOrdenCreada(data);
+      setTimeout(() => {
+        onOrdenCreada(data);
+        onHide();
+      }, 1000);
     } catch (e) {
       setMsg({
         type: "danger",

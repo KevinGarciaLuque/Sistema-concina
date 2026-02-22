@@ -73,19 +73,6 @@ export default function CheckoutPanel({
   return (
     <Card className="shadow-sm border-0 rounded-4">
       <Card.Body>
-        <div className="d-flex align-items-center justify-content-between flex-wrap gap-2">
-          <div>
-            <div className="fw-bold">Orden</div>
-            <div className="text-muted" style={{ fontSize: 12 }}>
-              Datos y totales antes de enviar a cocina
-            </div>
-          </div>
-
-          <Badge bg="dark">{carritoCount} items</Badge>
-        </div>
-
-        <hr />
-
         <Form.Group className="mb-2">
           <Form.Label className="fw-semibold">Tipo</Form.Label>
           <Form.Select value={tipo} onChange={(e) => setTipo(e.target.value)}>

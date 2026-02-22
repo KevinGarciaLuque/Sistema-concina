@@ -60,6 +60,7 @@ export default function ProductosAdmin() {
     activo: 1,
     en_menu: 1,
     es_combo: 0,
+    requiere_cocina: 1,
     imagen_url: "",
   });
 
@@ -139,6 +140,7 @@ export default function ProductosAdmin() {
       activo: 1,
       en_menu: 1,
       es_combo: 0,
+      requiere_cocina: 1,
       imagen_url: "",
     });
     setOpen(true);
@@ -157,6 +159,7 @@ export default function ProductosAdmin() {
       activo: Number(p.activo) ? 1 : 0,
       en_menu: Number(p.en_menu) ? 1 : 0,
       es_combo: Number(p.es_combo) ? 1 : 0,
+      requiere_cocina: Number(p.requiere_cocina ?? 1) ? 1 : 0,
       imagen_url: p.imagen_url || "",
     });
     setOpen(true);
@@ -186,6 +189,7 @@ export default function ProductosAdmin() {
       activo: Number(form.activo) ? 1 : 0,
       en_menu: Number(form.en_menu) ? 1 : 0,
       es_combo: Number(form.es_combo) ? 1 : 0,
+      requiere_cocina: Number(form.requiere_cocina ?? 1) ? 1 : 0,
     };
 
     if (!payload.categoria_id)
@@ -409,6 +413,11 @@ export default function ProductosAdmin() {
                                   width: "100%",
                                   height: "100%",
                                   objectFit: "cover",
+                                  objectPosition: "center",
+                                }}
+                                onError={(e) => {
+                                  e.currentTarget.style.display = "none";
+                                  e.currentTarget.parentElement.innerHTML = '<span class="text-muted small">Error</span>';
                                 }}
                               />
                             ) : (
@@ -691,6 +700,25 @@ export default function ProductosAdmin() {
                         />
                         <label className="form-check-label">Es combo</label>
                       </div>
+
+                      <div className="form-check form-switch">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          checked={Number(form.requiere_cocina ?? 1) === 1}
+                          onChange={(e) =>
+                            setForm((p) => ({
+                              ...p,
+                              requiere_cocina: e.target.checked ? 1 : 0,
+                            }))
+                          }
+                        />
+                        <label className="form-check-label">
+                          Requiere Cocina 
+                          <span className="text-muted ms-1" style={{ fontSize: 11 }}>
+                            (desactivar para items rápidos)</span>
+                        </label>
+                      </div>
                     </div>
                   </div>
 
@@ -701,16 +729,33 @@ export default function ProductosAdmin() {
                       style={{ background: "#fafafa", minHeight: 220 }}
                     >
                       {imgPreview ? (
-                        <img
-                          src={getImgSrc(imgPreview)}
-                          alt="preview"
+                        <div
                           style={{
                             width: "100%",
                             height: 200,
-                            objectFit: "cover",
                             borderRadius: 12,
+                            overflow: "hidden",
+                            background: "#e9ecef",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
                           }}
-                        />
+                        >
+                          <img
+                            src={getImgSrc(imgPreview)}
+                            alt="preview"
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "contain",
+                              objectPosition: "center",
+                            }}
+                            onError={(e) => {
+                              e.currentTarget.style.display = "none";
+                              e.currentTarget.parentElement.innerHTML = '<div class="text-danger">Error al cargar imagen</div>';
+                            }}
+                          />
+                        </div>
                       ) : (
                         <div
                           className="d-flex align-items-center justify-content-center text-muted"

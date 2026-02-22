@@ -19,6 +19,7 @@ import {
   FaDatabase,
   FaAddressCard,
   FaConciergeBell,
+  FaPercent,
 } from "react-icons/fa";
 
 import { socket } from "../socket";
@@ -168,6 +169,12 @@ export default function MainLayout() {
             label: "Clientes",
             icon: <FaAddressCard />,
             anyPerm: ["CLIENTES.ADMIN"],
+          },
+          {
+            to: "/admin/ajustes-precios",
+            label: "Ajustes de Precio",
+            icon: <FaPercent />,
+            anyPerm: ["AJUSTES_PRECIOS.ADMIN"],
           },
           {
             to: "/admin/backup",

@@ -53,17 +53,8 @@ export default function Sidebar({
 
   const closeMobile = () => setShow?.(false);
 
-  // ✅ FIX: el "end" NO debe ir siempre
-  const shouldEnd = (to) => {
-    const t = String(to || "");
-    if (!t.startsWith("/")) return true;
-
-    // rutas "padre" que deben quedar activas en subrutas
-    // si tuvieras más "padres", agrégalos aquí:
-    if (t === "/admin") return false;
-
-    return true;
-  };
+  // ✅ Siempre usar end={true} para que solo la ruta exacta esté activa
+  const shouldEnd = () => true;
 
   const LinkItemDark = ({ to, icon, label }) => {
     const isHovered = hoveredTo === to;

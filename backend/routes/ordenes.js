@@ -95,8 +95,9 @@ router.get(
     const soloSinFacturar = sin_facturar === "1" || sin_facturar === "true";
 
     if (esPendienteCobro) {
-      // Filtrar órdenes sin factura (cualquier tipo) que estén LISTA o ENTREGADA
-      where.push("o.estado IN ('LISTA', 'ENTREGADA')");
+      // ✅ MODIFICADO: Incluir todas las órdenes sin facturar (excepto ANULADA)
+      // Cualquier orden que no esté anulada puede ser cobrada desde el POS
+      where.push("o.estado != 'ANULADA'");
       where.push("f.id IS NULL"); // Sin factura asociada
     } else {
       // ✅ NUEVO: Filtro genérico para excluir órdenes ya facturadas
@@ -152,6 +153,8 @@ router.get(
         o.asignado_cocina_por, u2.nombre AS asignado_cocina_por_nombre,
         o.subtotal, o.descuento, o.impuesto, o.total,
         o.created_at, o.updated_at,
+        f.id AS factura_id,
+        f.numero_factura,
         (SELECT COUNT(*) FROM orden_detalle od WHERE od.orden_id = o.id) AS items_count,
         (SELECT JSON_ARRAYAGG(
           JSON_OBJECT(
@@ -381,7 +384,7 @@ router.post(
       // cargar productos base de un solo golpe
       const prodIds = [...new Set(cleanItems.map((i) => i.producto_id))];
       const [pRows] = await cexec(
-        `SELECT id, nombre, precio, activo, tasa_impuesto FROM productos WHERE id IN (${prodIds.map(() => "?").join(",")})`,
+        `SELECT id, nombre, precio, activo, tasa_impuesto, requiere_cocina FROM productos WHERE id IN (${prodIds.map(() => "?").join(",")})`,
         prodIds
       );
       const prodMap = new Map(pRows.map((p) => [Number(p.id), p]));
@@ -471,6 +474,16 @@ router.post(
         throw Object.assign(new Error("Total inválido"), { status: 400, message: "El total no puede ser negativo." });
       }
 
+      // ✅ NUEVO: Detectar si todos los productos NO requieren cocina
+      const todosItemsRapidos = cleanItems.every(item => {
+        const producto = prodMap.get(item.producto_id);
+        return producto && Number(producto.requiere_cocina) === 0;
+      });
+      
+      // Si todos los items son "rápidos" (no requieren cocina), estado inicial = LISTA
+      // Si al menos uno requiere cocina, estado inicial = NUEVA
+      const estadoInicial = todosItemsRapidos ? 'LISTA' : 'NUEVA';
+
       // insertar orden
       const [rOrden] = await cexec(
         `
@@ -478,7 +491,7 @@ router.post(
           (fecha, numero_dia, codigo, cliente_nombre, tipo, mesa, estado, notas, creado_por,
            subtotal, descuento, impuesto, total)
         VALUES
-          (?, ?, ?, ?, ?, ?, 'NUEVA', ?, ?, ?, ?, ?, ?)
+          (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           fecha,
@@ -487,6 +500,7 @@ router.post(
           cliente_nombre,
           tipo,
           mesa,
+          estadoInicial,
           notas,
           Number(req.user?.id ?? null),
           subtotal,
@@ -575,6 +589,244 @@ router.post(
 );
 
 /* =========================================================
+   POST /api/ordenes/:id/items - Agregar items a orden existente
+========================================================= */
+router.post(
+  "/:id/items",
+  requireAuth,
+  allowRoles("admin", "supervisor", "mesero"),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    if (!isInt(id)) return res.status(400).json({ ok: false, message: "ID de orden inválido." });
+
+    const { items } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ ok: false, message: "Envíe al menos un item." });
+    }
+
+    // Validar estructura de items
+    const cleanItems = [];
+    for (const it of items) {
+      const pid = Number(it?.producto_id);
+      if (!Number.isInteger(pid) || pid <= 0) {
+        return res.status(400).json({ ok: false, message: "producto_id inválido." });
+      }
+
+      const cantidad = Number(it?.cantidad ?? 1);
+      if (!Number.isInteger(cantidad) || cantidad <= 0) {
+        return res.status(400).json({ ok: false, message: "cantidad inválida." });
+      }
+
+      const notas = it?.notas ? String(it.notas).trim() : null;
+      const opciones = Array.isArray(it?.opciones) ? it.opciones : [];
+
+      cleanItems.push({ producto_id: pid, cantidad, notas, opciones });
+    }
+
+    const conn = await pool.getConnection();
+    const cexec = (sql, params = []) => (conn.execute ? conn.execute(sql, params) : conn.query(sql, params));
+
+    try {
+      await conn.beginTransaction();
+
+      // Verificar que la orden existe y no está facturada
+      const [[orden]] = await cexec(
+        `SELECT o.id, o.codigo, o.estado, o.subtotal, o.total, f.id AS factura_id
+         FROM ordenes o
+         LEFT JOIN facturas f ON f.orden_id = o.id
+         WHERE o.id = ?`,
+        [id]
+      );
+
+      if (!orden) {
+        await conn.rollback();
+        return res.status(404).json({ ok: false, message: "Orden no encontrada." });
+      }
+
+      if (orden.factura_id) {
+        await conn.rollback();
+        return res.status(409).json({ ok: false, message: "No se pueden agregar items a una orden ya facturada." });
+      }
+
+      if (orden.estado === "ANULADA") {
+        await conn.rollback();
+        return res.status(409).json({ ok: false, message: "No se pueden agregar items a una orden anulada." });
+      }
+
+      // Cargar productos
+      const prodIds = [...new Set(cleanItems.map((i) => i.producto_id))];
+      const [pRows] = await cexec(
+        `SELECT id, nombre, precio, activo, tasa_impuesto, requiere_cocina FROM productos WHERE id IN (${prodIds.map(() => "?").join(",")})`,
+        prodIds
+      );
+      const prodMap = new Map(pRows.map((p) => [Number(p.id), p]));
+
+      for (const pid of prodIds) {
+        const p = prodMap.get(pid);
+        if (!p) throw Object.assign(new Error("Producto no existe"), { status: 409, message: `Producto ${pid} no existe.` });
+        if (Number(p.activo) !== 1) {
+          throw Object.assign(new Error("Producto inactivo"), { status: 409, message: `Producto ${p.nombre} está inactivo.` });
+        }
+      }
+
+      // Cargar opciones si vienen
+      const opcionIds = [];
+      for (const it of cleanItems) {
+        for (const op of it.opciones) {
+          const oid = Number(op?.opcion_id);
+          if (Number.isInteger(oid) && oid > 0) opcionIds.push(oid);
+        }
+      }
+      const uniqueOpcionIds = [...new Set(opcionIds)];
+
+      let opcionMap = new Map();
+      if (uniqueOpcionIds.length) {
+        const [oRows] = await cexec(
+          `SELECT id, modificador_id, nombre, precio_extra, activo
+           FROM modificador_opciones
+           WHERE id IN (${uniqueOpcionIds.map(() => "?").join(",")})`,
+          uniqueOpcionIds
+        );
+        opcionMap = new Map(oRows.map((o) => [Number(o.id), o]));
+
+        for (const oid of uniqueOpcionIds) {
+          const o = opcionMap.get(oid);
+          if (!o) throw Object.assign(new Error("Opción no existe"), { status: 409, message: `Opción ${oid} no existe.` });
+          if (Number(o.activo) !== 1) {
+            throw Object.assign(new Error("Opción inactiva"), { status: 409, message: `Opción ${o.nombre} está inactiva.` });
+          }
+        }
+      }
+
+      // Calcular nuevos totales
+      let nuevoSubtotalItems = 0;
+      const computed = [];
+
+      for (const it of cleanItems) {
+        const p = prodMap.get(it.producto_id);
+        const precio_unitario = toMoney(p.precio, 0);
+
+        let extraUnit = 0;
+        const opcionesComputed = [];
+
+        for (const op of it.opciones) {
+          const oid = Number(op?.opcion_id);
+          if (!Number.isInteger(oid) || oid <= 0) continue;
+
+          const o = opcionMap.get(oid);
+          const precio_extra = toMoney(o.precio_extra, 0);
+          extraUnit += precio_extra;
+
+          opcionesComputed.push({
+            modificador_id: Number(o.modificador_id),
+            opcion_id: Number(o.id),
+            opcion_nombre: String(o.nombre),
+            precio_extra,
+          });
+        }
+
+        const total_linea = toMoney((precio_unitario + extraUnit) * it.cantidad, 0);
+        nuevoSubtotalItems += total_linea;
+
+        computed.push({
+          producto_id: it.producto_id,
+          producto_nombre: String(p.nombre),
+          precio_unitario,
+          cantidad: it.cantidad,
+          notas: it.notas,
+          total_linea,
+          tasa_impuesto: Number(p.tasa_impuesto || 15),
+          opciones: opcionesComputed,
+        });
+      }
+
+      // Actualizar totales de la orden
+      const nuevoSubtotal = toMoney(Number(orden.subtotal) + nuevoSubtotalItems, 0);
+      const nuevoTotal = toMoney(nuevoSubtotal, 0); // Por ahora sin descuentos/impuestos adicionales
+
+      await cexec(
+        `UPDATE ordenes SET subtotal = ?, total = ?, updated_at = NOW() WHERE id = ?`,
+        [nuevoSubtotal, nuevoTotal, id]
+      );
+
+      // Insertar nuevos items
+      for (const line of computed) {
+        const [rDet] = await cexec(
+          `
+          INSERT INTO orden_detalle
+            (orden_id, producto_id, producto_nombre, precio_unitario, cantidad, notas, total_linea, tasa_impuesto)
+          VALUES
+            (?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            id,
+            line.producto_id,
+            line.producto_nombre,
+            line.precio_unitario,
+            line.cantidad,
+            line.notas,
+            line.total_linea,
+            Number(line.tasa_impuesto || 15),
+          ]
+        );
+
+        const detId = rDet.insertId;
+
+        for (const op of line.opciones) {
+          await cexec(
+            `
+            INSERT INTO orden_detalle_opciones
+              (orden_detalle_id, modificador_id, opcion_id, opcion_nombre, precio_extra)
+            VALUES
+              (?, ?, ?, ?, ?)
+            `,
+            [Number(detId), Number(op.modificador_id), Number(op.opcion_id), op.opcion_nombre, op.precio_extra]
+          );
+        }
+      }
+
+      // Si la orden está en LISTA y se agregan items que requieren cocina, volver a NUEVA
+      const hayItemsQuRequierenCocina = computed.some(item => {
+        const producto = prodMap.get(item.producto_id);
+        return producto && Number(producto.requiere_cocina) === 1;
+      });
+
+      if (orden.estado === "LISTA" && hayItemsQuRequierenCocina) {
+        await cexec(`UPDATE ordenes SET estado = 'NUEVA' WHERE id = ?`, [id]);
+        await cexec(
+          `INSERT INTO orden_estados_historial (orden_id, estado, cambiado_por, comentario)
+           VALUES (?, 'NUEVA', ?, 'Orden volvió a NUEVA por agregar items que requieren cocina')`,
+          [id, Number(req.user?.id ?? null)]
+        );
+      }
+
+      await conn.commit();
+
+      await bitacoraSafe(req, {
+        accion: "ACTUALIZAR",
+        entidad: "ordenes",
+        entidad_id: Number(id),
+        detalle: `Agregados ${computed.length} items a orden ${orden.codigo}. Nuevo total: L ${nuevoTotal.toFixed(2)}`,
+      });
+
+      emitOrden(req, { action: "updated", id: Number(id), codigo: orden.codigo, estado: hayItemsQuRequierenCocina && orden.estado === "LISTA" ? "NUEVA" : orden.estado });
+
+      res.json({ ok: true, message: "Items agregados exitosamente." });
+    } catch (e) {
+      try {
+        await conn.rollback();
+      } catch {}
+
+      const status = e?.status || 500;
+      const message = e?.message || "Error al agregar items.";
+      return res.status(status).json({ ok: false, message });
+    } finally {
+      conn.release();
+    }
+  })
+);
+
+/* =========================================================
    PATCH /api/ordenes/:id/estado
 ========================================================= */
 router.patch(
@@ -628,6 +880,78 @@ router.patch(
     emitOrden(req, { action: "estado", id: Number(id), codigo: orden.codigo, from: orden.estado, to: nuevo });
 
     res.json({ ok: true });
+  })
+);
+
+/* =========================================================
+   PATCH /api/ordenes/:id/entregar
+   Marcar orden como ENTREGADA (para deliveries facturados)
+========================================================= */
+router.patch(
+  "/:id/entregar",
+  requireAuth,
+  allowRoles("admin", "supervisor", "cajero"),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    if (!isInt(id)) return res.status(400).json({ ok: false, message: "ID inválido." });
+
+    const [rows] = await exec(
+      `SELECT o.id, o.codigo, o.estado, o.tipo, f.id AS factura_id
+       FROM ordenes o
+       LEFT JOIN facturas f ON f.orden_id = o.id
+       WHERE o.id = ?`,
+      [Number(id)]
+    );
+    
+    if (!rows.length) {
+      return res.status(404).json({ ok: false, message: "Orden no encontrada." });
+    }
+
+    const orden = rows[0];
+
+    // Validar que esté facturada
+    if (!orden.factura_id) {
+      return res.status(400).json({ ok: false, message: "La orden debe estar facturada antes de entregarla." });
+    }
+
+    // Validar que sea DELIVERY (opcional, pero recomendado)
+    const tipoOrden = String(orden.tipo || "").toUpperCase();
+    if (tipoOrden !== "DELIVERY") {
+      return res.status(400).json({ ok: false, message: "Solo órdenes DELIVERY requieren entrega manual." });
+    }
+
+    // Validar estado actual
+    const estadoActual = String(orden.estado || "").toUpperCase();
+    if (estadoActual === "ENTREGADA") {
+      return res.status(409).json({ ok: false, message: "La orden ya está marcada como ENTREGADA." });
+    }
+
+    if (estadoActual === "ANULADA") {
+      return res.status(409).json({ ok: false, message: "No se puede entregar una orden ANULADA." });
+    }
+
+    // Actualizar a ENTREGADA
+    await exec(`UPDATE ordenes SET estado = 'ENTREGADA' WHERE id = ?`, [Number(id)]);
+
+    const uid = Number(req.user?.id ?? null);
+
+    // Registrar en historial
+    await exec(
+      `INSERT INTO orden_estados_historial (orden_id, estado, cambiado_por, comentario)
+       VALUES (?, 'ENTREGADA', ?, 'Entrega manual de delivery')`,
+      [Number(id), uid]
+    );
+
+    await bitacoraSafe(req, {
+      accion: "ENTREGAR",
+      entidad: "ordenes",
+      entidad_id: Number(id),
+      detalle: `Orden ${orden.codigo} marcada como ENTREGADA`,
+    });
+
+    emitOrden(req, { action: "entregada", id: Number(id), codigo: orden.codigo });
+
+    res.json({ ok: true, message: "Orden marcada como ENTREGADA" });
   })
 );
 

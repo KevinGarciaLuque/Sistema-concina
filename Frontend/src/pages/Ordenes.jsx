@@ -25,6 +25,7 @@ import {
   FaBan,
   FaUndo,
   FaClock,
+  FaTruck,
 } from "react-icons/fa";
 import api from "../api";
 import { socket } from "../socket";
@@ -157,9 +158,6 @@ export default function Ordenes() {
   const today = new Date();
   const seven = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-  // ✅ NUEVO: Vista/pestaña activa
-  const [vista, setVista] = useState("todas"); // "todas" | "pendiente_cobro"
-
   const [desde, setDesde] = useState(() => seven.toISOString().slice(0, 10));
   const [hasta, setHasta] = useState(() => today.toISOString().slice(0, 10));
   const [estado, setEstado] = useState("");
@@ -174,10 +172,6 @@ export default function Ordenes() {
   const [showDetalle, setShowDetalle] = useState(false);
   const [detalleLoading, setDetalleLoading] = useState(false);
   const [ordenSel, setOrdenSel] = useState(null);
-
-  // ✅ NUEVO: Modal de cobro
-  const [showCobro, setShowCobro] = useState(false);
-  const [ordenCobro, setOrdenCobro] = useState(null);
 
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 992);
@@ -194,8 +188,6 @@ export default function Ordenes() {
         ...(estado ? { estado } : {}),
         ...(tipo ? { tipo } : {}),
         ...(q ? { q } : {}),
-        // ✅ NUEVO: flag para pendiente cobro
-        ...(vista === "pendiente_cobro" ? { pendiente_cobro: "1" } : {}),
       };
 
       const list = await fetchOrdenes(params);
@@ -248,7 +240,7 @@ export default function Ordenes() {
 
     return () => window.removeEventListener("resize", onResize);
     // eslint-disable-next-line
-  }, [vista]); // ✅ NUEVO: recargar cuando cambia vista
+  }, []);
 
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -395,6 +387,26 @@ export default function Ordenes() {
     }
   };
 
+  const marcarEntregada = async (orden) => {
+    setBusyId(orden.id);
+    setMsg({ type: "", text: "" });
+    try {
+      await api.patch(`/ordenes/${orden.id}/entregar`);
+      setMsg({
+        type: "success",
+        text: `✅ ${orden.codigo} → ENTREGADA`,
+      });
+      await load();
+    } catch (e) {
+      setMsg({
+        type: "danger",
+        text: e?.response?.data?.message || "No se pudo marcar como entregada.",
+      });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
 const accionesBotones = (o) => {
   const est = normalizeEstado(o.estado);
   const disabled = busyId === o.id;
@@ -444,17 +456,17 @@ const accionesBotones = (o) => {
             </Button>
           )}
 
-          {/* LISTA -> ENTREGADA */}
-          {est === "LISTA" && (
+          {/* DELIVERY facturado LISTA -> ENTREGADA (manual) */}
+          {est === "LISTA" && o.tipo === "DELIVERY" && o.factura_id && (
             <Button
               size="sm"
-              variant="outline-dark"
-              onClick={() => cambiarEstado(o, "ENTREGADA")}
-              title="Entregar orden"
+              variant="outline-success"
+              onClick={() => marcarEntregada(o)}
+              title="Marcar como entregada"
               disabled={disabled}
               style={{ padding: "2px 6px", fontSize: "11px" }}
             >
-              <FaCheckCircle size={11} />
+              <FaTruck size={11} />
             </Button>
           )}
 
@@ -538,30 +550,6 @@ const accionesBotones = (o) => {
   </Row>
 
   {msg.text ? <Alert variant={msg.type}>{msg.text}</Alert> : null}
-
-  {/* ✅ NUEVO: Pestañas */}
-  <Card className="shadow-sm border-0 rounded-4 mb-3">
-    <Card.Body className="py-2 px-3">
-      <div className="d-flex gap-2">
-        <Button
-          variant={vista === "todas" ? "primary" : "outline-primary"}
-          size="sm"
-          onClick={() => setVista("todas")}
-          className="px-3"
-        >
-          📋 Todas las órdenes
-        </Button>
-        <Button
-          variant={vista === "pendiente_cobro" ? "warning" : "outline-warning"}
-          size="sm"
-          onClick={() => setVista("pendiente_cobro")}
-          className="px-3"
-        >
-          💰 Pendiente Cobro
-        </Button>
-      </div>
-    </Card.Body>
-  </Card>
 
   {/* KPIs */}
   <Row className="g-3 mb-3">
@@ -722,23 +710,8 @@ const accionesBotones = (o) => {
                 </span>
               </div>
 
-              {/* ✅ NUEVO: Botón cobrar en móvil para pendiente_cobro */}
               <div className="mt-2">
-                {vista === "pendiente_cobro" ? (
-                  <Button
-                    variant="success"
-                    size="sm"
-                    className="w-100"
-                    onClick={() => {
-                      setOrdenCobro(o);
-                      setShowCobro(true);
-                    }}
-                  >
-                    💰 Cobrar
-                  </Button>
-                ) : (
-                  accionesBotones(o)
-                )}
+                {accionesBotones(o)}
               </div>
             </Card.Body>
           </Card>
@@ -759,10 +732,8 @@ const accionesBotones = (o) => {
             <tr className="small text-uppercase">
               <th className="text-nowrap" style={{ width: "100px" }}>Código</th>
               <th className="text-nowrap" style={{ width: "140px" }}>Fecha</th>
-              {vista === "pendiente_cobro" ? <th className="text-nowrap" style={{ width: "100px" }}>Mesero</th> : null}
               <th className="text-nowrap" style={{ width: "80px" }}>Tipo</th>
               <th className="text-nowrap text-center" style={{ width: "60px" }}>Mesa</th>
-              {vista === "pendiente_cobro" ? <th className="text-nowrap text-center" style={{ width: "80px" }}>Tiempo</th> : null}
               <th className="text-nowrap" style={{ width: "110px" }}>Estado</th>
               <th className="text-nowrap text-center" style={{ width: "60px" }}>Items</th>
               <th className="text-nowrap text-end" style={{ width: "90px" }}>Total</th>
@@ -773,7 +744,7 @@ const accionesBotones = (o) => {
           <tbody>
             {filtradas.length === 0 ? (
               <tr>
-                <td colSpan={vista === "pendiente_cobro" ? 10 : 8} className="text-muted py-4 text-center">
+                <td colSpan={8} className="text-muted py-4 text-center">
                   No hay órdenes con esos filtros.
                 </td>
               </tr>
@@ -796,12 +767,6 @@ const accionesBotones = (o) => {
                     </span>
                   </td>
 
-                  {vista === "pendiente_cobro" ? (
-                    <td className="text-nowrap">
-                      <span className="fw-semibold">{o.mesero_nombre || "—"}</span>
-                    </td>
-                  ) : null}
-
                   <td className="text-nowrap">
                     <Badge bg="dark" className="small">
                       {o.tipo}
@@ -811,16 +776,6 @@ const accionesBotones = (o) => {
                   <td className="text-center text-nowrap">
                     {o.tipo === "MESA" ? o.mesa ?? "—" : "—"}
                   </td>
-
-                  {vista === "pendiente_cobro" ? (
-                    <td className="text-center text-nowrap">
-                      {mins !== null ? (
-                        <Badge bg={warn ? "danger" : "light"} text={warn ? undefined : "dark"}>
-                          {mins} min
-                        </Badge>
-                      ) : "—"}
-                    </td>
-                  ) : null}
 
                   <td className="text-nowrap">{badgeEstado(o.estado)}</td>
 
@@ -833,21 +788,7 @@ const accionesBotones = (o) => {
                   </td>
 
                   <td className="text-end text-nowrap">
-                    {vista === "pendiente_cobro" ? (
-                      <Button
-                        size="sm"
-                        variant="success"
-                        onClick={() => {
-                          setOrdenCobro(o);
-                          setShowCobro(true);
-                        }}
-                        style={{ padding: "4px 8px", fontSize: "11px" }}
-                      >
-                        💰 Cobrar
-                      </Button>
-                    ) : (
-                      accionesBotones(o)
-                    )}
+                    {accionesBotones(o)}
                   </td>
                 </tr>
               )})
@@ -961,74 +902,6 @@ const accionesBotones = (o) => {
     <Modal.Footer>
       <Button variant="outline-secondary" onClick={() => setShowDetalle(false)}>
         Cerrar
-      </Button>
-    </Modal.Footer>
-  </Modal>
-
-  {/* ✅ NUEVO: Modal de Cobro */}
-  <Modal show={showCobro} onHide={() => setShowCobro(false)} centered>
-    <Modal.Header closeButton>
-      <Modal.Title className="fw-bold">
-        💰 Cobrar Orden
-        {ordenCobro?.codigo ? (
-          <Badge bg="dark" className="ms-2">
-            {ordenCobro.codigo}
-          </Badge>
-        ) : null}
-      </Modal.Title>
-    </Modal.Header>
-
-    <Modal.Body>
-      {!ordenCobro ? (
-        <div className="text-muted">Sin información.</div>
-      ) : (
-        <>
-          <Card className="rounded-4 border mb-3">
-            <Card.Body>
-              <Row className="g-2">
-                <Col xs={6}>
-                  <div className="text-muted small">Mesa</div>
-                  <div className="fw-bold">{ordenCobro.mesa || "—"}</div>
-                </Col>
-                <Col xs={6}>
-                  <div className="text-muted small">Mesero</div>
-                  <div className="fw-bold">{ordenCobro.mesero_nombre || "—"}</div>
-                </Col>
-                <Col xs={6}>
-                  <div className="text-muted small">Items</div>
-                  <div className="fw-bold">
-                    {pickItems(ordenCobro).length || ordenCobro.items_count || 0}
-                  </div>
-                </Col>
-                <Col xs={6}>
-                  <div className="text-muted small">Total</div>
-                  <div className="fw-bold text-success" style={{ fontSize: 20 }}>
-                    {money(ordenCobro.total || 0)}
-                  </div>
-                </Col>
-              </Row>
-            </Card.Body>
-          </Card>
-
-          <Alert variant="info" className="small">
-            <strong>Nota:</strong> Esta orden fue creada por el mesero y está lista para cobrar. Al hacer clic en "Ir al POS" se abrirá el módulo de punto de venta con esta orden pre-cargada para procesar el pago.
-          </Alert>
-        </>
-      )}
-    </Modal.Body>
-
-    <Modal.Footer>
-      <Button variant="secondary" onClick={() => setShowCobro(false)}>
-        Cancelar
-      </Button>
-      <Button
-        variant="success"
-        onClick={() => {
-          // TODO: Redirigir al POS con la orden pre-cargada
-          window.open(`/pos?orden_id=${ordenCobro?.id}`, "_blank");
-        }}
-      >
-        Ir al POS para Cobrar
       </Button>
     </Modal.Footer>
   </Modal>

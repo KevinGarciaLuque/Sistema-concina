@@ -78,22 +78,58 @@ export default function CatalogoProductos({
               <Col key={p.id} xs={12} sm={6} md={6} lg={6} xl={4}>
                 <Card className="h-100 rounded-4 border">
                   {p.imagen_url ? (
-                    <div style={{ height: 140, overflow: "hidden", borderTopLeftRadius: 16, borderTopRightRadius: 16 }}>
+                    <div style={{ 
+                      height: 140, 
+                      overflow: "hidden", 
+                      borderTopLeftRadius: 16, 
+                      borderTopRightRadius: 16,
+                      background: "#f8f9fa",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center"
+                    }}>
                       <img
                         src={imgSrc(p.imagen_url)}
                         alt={p.nombre}
-                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                        onError={(e) => (e.currentTarget.style.display = "none")}
+                        style={{ 
+                          width: "100%", 
+                          height: "100%", 
+                          objectFit: "cover",
+                          objectPosition: "center"
+                        }}
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                          e.currentTarget.parentElement.innerHTML = '<div class="text-muted small">Sin imagen</div>';
+                        }}
                       />
                     </div>
-                  ) : null}
+                  ) : (
+                    <div style={{ 
+                      height: 140, 
+                      borderTopLeftRadius: 16, 
+                      borderTopRightRadius: 16,
+                      background: "#f8f9fa",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center"
+                    }}>
+                      <span className="text-muted small">Sin imagen</span>
+                    </div>
+                  )}
 
                   <Card.Body className="d-flex flex-column">
-                    <div className="d-flex align-items-start justify-content-between gap-2">
+                    <div className="d-flex align-items-start justify-content-between gap-2 flex-wrap">
                       <div className="fw-bold">{p.nombre}</div>
-                      <Badge bg={p.es_combo ? "warning" : "secondary"} text={p.es_combo ? "dark" : "light"}>
-                        {p.es_combo ? "Combo" : "Item"}
-                      </Badge>
+                      <div className="d-flex gap-1">
+                        <Badge bg={p.es_combo ? "warning" : "secondary"} text={p.es_combo ? "dark" : "light"}>
+                          {p.es_combo ? "Combo" : "Item"}
+                        </Badge>
+                        {Number(p.requiere_cocina) === 0 && (
+                          <Badge bg="info" text="dark" title="Item rápido - No requiere cocina">
+                            ⚡ Rápido
+                          </Badge>
+                        )}
+                      </div>
                     </div>
 
                     <div className="text-muted" style={{ fontSize: 12 }}>

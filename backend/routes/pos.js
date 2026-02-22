@@ -130,7 +130,7 @@ router.post("/cobrar", async (req, res) => {
 
     // 2) validar orden
     const [[orden]] = await conn.query(
-      "SELECT id, estado FROM ordenes WHERE id=? FOR UPDATE",
+      "SELECT id, estado, tipo FROM ordenes WHERE id=? FOR UPDATE",
       [orden_id],
     );
     if (!orden) {
@@ -138,6 +138,7 @@ router.post("/cobrar", async (req, res) => {
       return res.status(404).json({ ok: false, message: "Orden no existe" });
     }
     const estadoOrden = String(orden.estado || "").toUpperCase();
+    const tipoOrden = String(orden.tipo || "").toUpperCase();
     if (estadoOrden === "ANULADA") {
       await conn.rollback();
       return res
@@ -283,14 +284,24 @@ router.post("/cobrar", async (req, res) => {
       );
     }
 
+    // 8) ✅ Actualizar estado de orden según tipo (HÍBRIDO)
+    // MESA y LLEVAR → ENTREGADA automáticamente
+    // DELIVERY → queda en LISTA (se entrega después manualmente)
+    if (tipoOrden === "MESA" || tipoOrden === "LLEVAR") {
+      await conn.query(
+        "UPDATE ordenes SET estado = 'ENTREGADA' WHERE id = ?",
+        [orden_id]
+      );
+    }
+
     await conn.commit();
 
     // Emitir evento de actualización para que se actualicen las vistas en tiempo real
-    emitOrden(req, { orden_id, factura_id: facturaId, evento: "cobrada" });
+    emitOrden(req, { orden_id, factura_id: facturaId, evento: "cobrada", tipo: tipoOrden });
 
     return res.json({
       ok: true,
-      data: { factura_id: facturaId, orden_id, numero_factura },
+      data: { factura_id: facturaId, orden_id, numero_factura, tipo: tipoOrden },
     });
   } catch (e) {
     await conn.rollback();

@@ -9,7 +9,8 @@ import {
   Spinner,
   Table,
 } from "react-bootstrap";
-import { FaClock, FaMoneyBillWave, FaUtensils, FaSearch, FaFilter } from "react-icons/fa";
+import { FaClock, FaMoneyBillWave, FaUtensils, FaSearch, FaFilter, FaEye } from "react-icons/fa";
+import ModalDetalleOrden from "./ModalDetalleOrden";
 
 function money(n) {
   return `L ${Number(n || 0).toFixed(2)}`;
@@ -32,6 +33,15 @@ export default function OrdenesPendientesCobro({ ordenes, loading, onCobrar }) {
   const [filtroTipo, setFiltroTipo] = useState("TODOS");
   const [filtroMesa, setFiltroMesa] = useState("");
   const [busqueda, setBusqueda] = useState("");
+  
+  // Modal detalle
+  const [showDetalle, setShowDetalle] = useState(false);
+  const [ordenSeleccionada, setOrdenSeleccionada] = useState(null);
+
+  const verDetalle = (orden) => {
+    setOrdenSeleccionada(orden.id);
+    setShowDetalle(true);
+  };
 
   // Filtrar órdenes según los filtros aplicados
   const ordenesFiltradas = useMemo(() => {
@@ -204,7 +214,7 @@ export default function OrdenesPendientesCobro({ ordenes, loading, onCobrar }) {
                 <th style={{ width: 100 }}>Total</th>
                 <th style={{ width: 120 }}>Estado</th>
                 <th style={{ width: 140 }}>Creada</th>
-                <th style={{ width: 100 }}>Acción</th>
+                <th style={{ width: 140 }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -263,16 +273,28 @@ export default function OrdenesPendientesCobro({ ordenes, loading, onCobrar }) {
                       {formatFecha(orden.created_at)}
                     </td>
                     <td>
-                      <Button
-                        size="sm"
-                        variant="success"
-                        className="d-inline-flex align-items-center gap-1"
-                        onClick={() => onCobrar(orden)}
-                        style={{ fontSize: 12 }}
-                      >
-                        <FaMoneyBillWave size={12} />
-                        Cobrar
-                      </Button>
+                      <div className="d-flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline-primary"
+                          className="d-inline-flex align-items-center gap-1"
+                          onClick={() => verDetalle(orden)}
+                          style={{ fontSize: 11 }}
+                          title="Ver detalle"
+                        >
+                          <FaEye size={11} />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="success"
+                          className="d-inline-flex align-items-center gap-1"
+                          onClick={() => onCobrar(orden)}
+                          style={{ fontSize: 11 }}
+                        >
+                          <FaMoneyBillWave size={11} />
+                          Cobrar
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -281,6 +303,13 @@ export default function OrdenesPendientesCobro({ ordenes, loading, onCobrar }) {
           </Table>
         </div>
       </Card.Body>
+
+      {/* Modal detalle de orden */}
+      <ModalDetalleOrden
+        show={showDetalle}
+        onHide={() => setShowDetalle(false)}
+        ordenId={ordenSeleccionada}
+      />
     </Card>
   );
 }

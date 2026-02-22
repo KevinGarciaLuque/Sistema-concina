@@ -23,6 +23,7 @@ import ClientesAdmin from "../pages/admin/ClientesAdmin";
 import BackupAdmin from "../pages/admin/BackupAdmin";
 import Roles from "../pages/admin/Roles";
 import Permisos from "../pages/admin/Permisos";
+import AjustesPrecios from "../pages/admin/AjustesPrecios";
 
 // Auth + Layout
 import ProtectedRoute from "../components/ProtectedRoute";
@@ -175,6 +176,15 @@ export default function AppRoutes() {
           element={
             <ProtectedRoute permiso="CLIENTES.ADMIN">
               <ClientesAdmin />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/ajustes-precios"
+          element={
+            <ProtectedRoute permiso="AJUSTES_PRECIOS.ADMIN">
+              <AjustesPrecios />
             </ProtectedRoute>
           }
         />

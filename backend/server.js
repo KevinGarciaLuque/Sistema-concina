@@ -26,6 +26,8 @@ import posRoutes from "./routes/pos.js";
 import caiRoutes from "./routes/cai.js";
 import clientesRoutes from "./routes/clientes.js";
 import backupRoutes from "./routes/backup.js";
+import impuestosRoutes from "./routes/impuestos.js";
+import descuentosRoutes from "./routes/descuentos.js";
 
 
 
@@ -45,7 +47,9 @@ const __dirname = path.dirname(__filename);
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   "http://localhost:5173",
+  "http://localhost:5174",
   "http://127.0.0.1:5173",
+  "http://127.0.0.1:5174",
 ].filter(Boolean);
 
 app.use(
@@ -121,6 +125,8 @@ app.use("/api/productos", productosRoutes);
 app.use("/api/modificadores", modificadoresRoutes);
 
 app.use("/api/clientes", clientesRoutes);
+app.use("/api/impuestos", impuestosRoutes);
+app.use("/api/descuentos", descuentosRoutes);
 
 app.use("/api/pos", posRoutes);
 app.use("/api/caja", cajaRoutes);

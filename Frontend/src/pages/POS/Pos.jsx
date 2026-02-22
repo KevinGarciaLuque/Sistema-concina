@@ -313,6 +313,41 @@ export default function Pos() {
   };
 
   const addProducto = async (producto) => {
+    // ✅ Verificar si el producto tiene modificadores primero
+    if (!producto) return;
+
+    try {
+      const { data } = await api.get(
+        `/modificadores/por-producto/${producto.id}`,
+        { params: { _t: Date.now() } },
+      );
+      const mods = Array.isArray(data?.data) ? data.data : [];
+
+      // Si NO tiene modificadores, agregarlo directamente al carrito
+      if (!mods || mods.length === 0) {
+        const nuevoItem = {
+          id: uid(),
+          producto_id: Number(producto.id),
+          producto_nombre: String(producto.nombre),
+          precio_unitario: Number(producto.precio || 0),
+          cantidad: 1,
+          notas: "",
+          opciones: [],
+        };
+
+        setCarrito((prev) => [...prev, nuevoItem]);
+        setMsg({ 
+          type: "success", 
+          text: `✅ ${producto.nombre} agregado al carrito` 
+        });
+        setTimeout(() => setMsg({ type: "", text: "" }), 2000);
+        return;
+      }
+    } catch (e) {
+      console.error("Error verificando modificadores:", e);
+    }
+
+    // Si tiene modificadores, abrir el modal
     await abrirModificadoresParaProducto(producto, "add", null);
   };
 
@@ -528,7 +563,8 @@ export default function Pos() {
     }
 
     // ✅ Calcular total final con descuentos e impuestos
-    const subtotalBase = ventaDraft.subtotal;
+    // Si la orden ya tiene total (orden pendiente), usar ese como base
+    const subtotalBase = ventaDraft.subtotal || ventaDraft.total || 0;
     const descuentoFinal = Number(descuento || 0);
     const impuestoFinal = Number(impuesto || 0);
     const totalFinal = round2(subtotalBase - descuentoFinal + impuestoFinal);
@@ -559,6 +595,8 @@ export default function Pos() {
 
         pagos: pagoState.pagos,
       };
+
+      console.log("💰 Enviando payload de cobro:", payload);
 
       const { data } = await api.post("/pos/cobrar", payload);
       const facturaId = data?.data?.factura_id;
@@ -594,6 +632,7 @@ export default function Pos() {
         text: `✅ Venta cobrada e impresa. Factura: ${numeroFactura || facturaId}`,
       });
     } catch (e) {
+      console.error("❌ Error al cobrar:", e);
       setMsg({
         type: "danger",
         text: e?.response?.data?.message || "No se pudo cobrar/imprimir.",
@@ -605,9 +644,10 @@ export default function Pos() {
 
   // ✅ Calcular total con descuentos e impuestos en tiempo real
   const totalCobro = useMemo(() => {
-    if (!ventaDraft?.subtotal) return 0;
+    if (!ventaDraft) return 0;
+    const base = ventaDraft.subtotal || ventaDraft.total || 0;
     return round2(
-      Number(ventaDraft.subtotal) - 
+      Number(base) - 
       Number(descuento || 0) + 
       Number(impuesto || 0)
     );
@@ -649,6 +689,15 @@ export default function Pos() {
   // ✅ NUEVO: cobrar orden pendiente
   const handleCobrarOrdenPendiente = async (orden) => {
     try {
+      // Validar que hay caja abierta
+      if (!cajaSesion?.id) {
+        setMsg({
+          type: "danger",
+          text: "⚠️ No hay caja abierta. Abre una caja primero para poder cobrar.",
+        });
+        return;
+      }
+
       // Usar directamente los datos de la orden que ya tenemos
       setVentaDraft({
         orden: {
@@ -656,10 +705,10 @@ export default function Pos() {
           codigo: orden.codigo,
         },
         cliente_nombre: orden.cliente_nombre || null,
-        subtotal: Number(orden.subtotal || 0),
+        subtotal: Number(orden.total || 0), // ✅ Usar el total de la orden
         descuento: 0, // Resetear para que usuario decida
         impuesto: 0, // Resetear para que usuario decida
-        total: Number(orden.subtotal || 0), // Solo subtotal, descuento/impuesto se aplicarán
+        total: Number(orden.total || 0), // Total de la orden
       });
 
       // Resetear estados de pago y cobro
@@ -672,6 +721,7 @@ export default function Pos() {
 
       // Abrir modal de cobro
       setShowCobro(true);
+      setMsg({ type: "", text: "" }); // Limpiar mensajes
     } catch (e) {
       setMsg({
         type: "danger",
@@ -913,57 +963,6 @@ export default function Pos() {
             </div>
           </div>
 
-          {/* ✅ Sección de totales y ajustes */}
-          <div className="mb-2 p-2 border rounded-3 bg-light">
-            <div className="fw-bold mb-2" style={{ fontSize: 12 }}>
-              Totales
-            </div>
-
-            <div className="d-flex justify-content-between mb-1" style={{ fontSize: 12 }}>
-              <span className="text-muted">Subtotal:</span>
-              <span className="fw-semibold">L {Number(ventaDraft?.subtotal || 0).toFixed(2)}</span>
-            </div>
-
-            <div className="d-flex gap-2 mb-1">
-              <Form.Group style={{ flex: 1 }}>
-                <Form.Label style={{ fontSize: 11, marginBottom: 2 }}>Desc.</Form.Label>
-                <InputGroup size="sm">
-                  <InputGroup.Text style={{ fontSize: 11, padding: "2px 6px" }}>L</InputGroup.Text>
-                  <Form.Control
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={descuento}
-                    onChange={(e) => setDescuento(e.target.value)}
-                    style={{ fontSize: 12 }}
-                  />
-                </InputGroup>
-              </Form.Group>
-
-              <Form.Group style={{ flex: 1 }}>
-                <Form.Label style={{ fontSize: 11, marginBottom: 2 }}>Imp.</Form.Label>
-                <InputGroup size="sm">
-                  <InputGroup.Text style={{ fontSize: 11, padding: "2px 6px" }}>L</InputGroup.Text>
-                  <Form.Control
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={impuesto}
-                    onChange={(e) => setImpuesto(e.target.value)}
-                    style={{ fontSize: 12 }}
-                  />
-                </InputGroup>
-              </Form.Group>
-            </div>
-
-            <div className="d-flex justify-content-between pt-1 border-top">
-              <span className="fw-bold" style={{ fontSize: 12 }}>TOTAL:</span>
-              <span className="fw-bold" style={{ fontSize: 16, color: "#198754" }}>
-                L {Number(totalCobro || 0).toFixed(2)}
-              </span>
-            </div>
-          </div>
-
           {/* ✅ Información del cliente */}
           <div className="mb-2">
             <div className="d-flex align-items-center justify-content-between mb-1">
@@ -1007,6 +1006,23 @@ export default function Pos() {
                   <div className="text-center py-2">
                     <Spinner size="sm" animation="border" />
                   </div>
+                ) : clienteSeleccionado ? (
+                  <div className="p-2 rounded-2 border" style={{ background: "#fff", fontSize: 11 }}>
+                    <div className="d-flex justify-content-between align-items-start">
+                      <div className="flex-grow-1">
+                        <div className="fw-bold mb-1">{clienteSeleccionado.nombre}</div>
+                        <div className="text-muted">RTN: {clienteSeleccionado.rtn}</div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline-secondary"
+                        onClick={() => setClienteSeleccionado(null)}
+                        style={{ fontSize: 10, padding: "2px 8px" }}
+                      >
+                        Cambiar
+                      </Button>
+                    </div>
+                  </div>
                 ) : (
                   <>
                     <Form.Group className="mb-0">
@@ -1025,19 +1041,8 @@ export default function Pos() {
                       </Form.Select>
                     </Form.Group>
 
-                    {clienteSeleccionado && (
-                      <div className="mt-2 p-2 rounded-2 border" style={{ background: "#fff", fontSize: 11 }}>
-                        <div className="text-muted mb-1">
-                          <b>{clienteSeleccionado.nombre}</b>
-                        </div>
-                        <div className="text-muted">
-                          RTN: {clienteSeleccionado.rtn}
-                        </div>
-                      </div>
-                    )}
-
                     {clientesConRtn.length === 0 && (
-                      <div className="text-center text-muted py-1" style={{ fontSize: 11 }}>
+                      <div className="text-center text-muted py-1 mt-2" style={{ fontSize: 11 }}>
                         Sin clientes RTN registrados
                       </div>
                     )}
@@ -1045,6 +1050,57 @@ export default function Pos() {
                 )}
               </div>
             )}
+          </div>
+
+          {/* ✅ Sección de totales y ajustes */}
+          <div className="mb-2 p-2 border rounded-3 bg-light">
+            <div className="fw-bold mb-2" style={{ fontSize: 12 }}>
+              Totales
+            </div>
+
+            <div className="d-flex justify-content-between mb-1" style={{ fontSize: 12 }}>
+              <span className="text-muted">Subtotal:</span>
+              <span className="fw-semibold">L {Number(ventaDraft?.subtotal || ventaDraft?.total || 0).toFixed(2)}</span>
+            </div>
+
+            <div className="d-flex gap-2 mb-1">
+              <Form.Group style={{ flex: 1 }}>
+                <Form.Label style={{ fontSize: 11, marginBottom: 2 }}>Desc.</Form.Label>
+                <InputGroup size="sm">
+                  <InputGroup.Text style={{ fontSize: 11, padding: "2px 6px" }}>L</InputGroup.Text>
+                  <Form.Control
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={descuento}
+                    onChange={(e) => setDescuento(e.target.value)}
+                    style={{ fontSize: 12 }}
+                  />
+                </InputGroup>
+              </Form.Group>
+
+              <Form.Group style={{ flex: 1 }}>
+                <Form.Label style={{ fontSize: 11, marginBottom: 2 }}>Imp.</Form.Label>
+                <InputGroup size="sm">
+                  <InputGroup.Text style={{ fontSize: 11, padding: "2px 6px" }}>L</InputGroup.Text>
+                  <Form.Control
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={impuesto}
+                    onChange={(e) => setImpuesto(e.target.value)}
+                    style={{ fontSize: 12 }}
+                  />
+                </InputGroup>
+              </Form.Group>
+            </div>
+
+            <div className="d-flex justify-content-between pt-1 border-top">
+              <span className="fw-bold" style={{ fontSize: 12 }}>TOTAL:</span>
+              <span className="fw-bold" style={{ fontSize: 16, color: "#198754" }}>
+                L {Number(totalCobro || 0).toFixed(2)}
+              </span>
+            </div>
           </div>
 
           {/* Método de pago */}
@@ -1056,6 +1112,18 @@ export default function Pos() {
               onChange={setPagoState}
             />
           </div>
+
+          {/* Mensajes de validación */}
+          {!cajaSesion?.id && (
+            <Alert variant="danger" className="mb-0 mt-2" style={{ fontSize: 12 }}>
+              ⚠️ No hay caja abierta. Abre una caja primero.
+            </Alert>
+          )}
+          {pagoState && !pagoState.isValid && pagoState.error && (
+            <Alert variant="warning" className="mb-0 mt-2" style={{ fontSize: 12 }}>
+              {pagoState.error}
+            </Alert>
+          )}
         </Modal.Body>
 
         <Modal.Footer className="py-2">
@@ -1118,8 +1186,11 @@ export default function Pos() {
       {/* Modal para finalizar orden */}
       <Modal show={showCheckout} onHide={handleCloseCheckout} size="md" centered backdrop="static">
         <Modal.Header closeButton className="py-2">
-          <Modal.Title style={{ fontSize: 16 }}>
+          <Modal.Title className="d-flex align-items-center gap-2" style={{ fontSize: 16 }}>
             {ordenCreada?.codigo ? "¿Cómo desea continuar?" : "📋 Tomar Orden"}
+            {!ordenCreada && carrito.length > 0 && (
+              <Badge bg="dark">{carrito.length} items</Badge>
+            )}
           </Modal.Title>
         </Modal.Header>
         <Modal.Body className="p-3">

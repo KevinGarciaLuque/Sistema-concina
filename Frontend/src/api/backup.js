@@ -30,3 +30,13 @@ export const listarBackups = async () => {
   const { data } = await api.get("/backup/list");
   return Array.isArray(data?.backups) ? data.backups : [];
 };
+
+/**
+ * Limpia datos transaccionales (órdenes, facturas, cajas) manteniendo datos maestros
+ * @param {string} confirmar - Texto de confirmación "CONFIRMAR_LIMPIAR_DATOS"
+ * @returns {Promise<Object>}
+ */
+export const limpiarDatos = async (confirmar) => {
+  const { data } = await api.post("/backup/limpiar-datos", { confirmar });
+  return data;
+};

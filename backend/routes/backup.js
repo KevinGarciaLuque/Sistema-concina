@@ -199,4 +199,76 @@ router.get("/list", auth, allowRoles("admin"), async (req, res) => {
   }
 });
 
+/**
+ * POST /api/backup/limpiar-datos
+ * Limpia datos transaccionales (órdenes, facturas, cajas) manteniendo datos maestros
+ * Solo accesible para administradores
+ */
+router.post("/limpiar-datos", auth, allowRoles("admin"), async (req, res) => {
+  try {
+    const { confirmar } = req.body;
+
+    if (confirmar !== "CONFIRMAR_LIMPIAR_DATOS") {
+      return res.status(400).json({
+        ok: false,
+        message: "Debe confirmar la acción con el texto exacto",
+      });
+    }
+
+    console.log("⚠️ Iniciando limpieza de datos transaccionales...");
+
+    const pool = (await import("../db.js")).default;
+    const connection = await pool.getConnection();
+
+    try {
+      // Deshabilitar foreign key checks temporalmente
+      await connection.query("SET FOREIGN_KEY_CHECKS = 0");
+
+      // Limpiar tablas transaccionales en orden correcto
+      const tablasALimpiar = [
+        "orden_detalle_opciones",
+        "orden_detalle",
+        "orden_estados_historial",
+        "pagos",
+        "facturas",
+        "ordenes",
+        "caja_sesiones",
+        "bitacora",
+      ];
+
+      for (const tabla of tablasALimpiar) {
+        console.log(`🗑️ Limpiando tabla: ${tabla}`);
+        await connection.query(`TRUNCATE TABLE ${tabla}`);
+      }
+
+      // Resetear auto_increment de las tablas principales
+      await connection.query("ALTER TABLE ordenes AUTO_INCREMENT = 1");
+      await connection.query("ALTER TABLE facturas AUTO_INCREMENT = 1");
+      await connection.query("ALTER TABLE caja_sesiones AUTO_INCREMENT = 1");
+
+      // Rehabilitar foreign key checks
+      await connection.query("SET FOREIGN_KEY_CHECKS = 1");
+
+      console.log("✅ Limpieza completada exitosamente");
+
+      res.json({
+        ok: true,
+        message: "Datos transaccionales limpiados correctamente. Usuarios, clientes, productos y configuraciones se mantienen intactos.",
+        tablasLimpiadas: tablasALimpiar,
+      });
+
+    } finally {
+      connection.release();
+    }
+
+  } catch (error) {
+    console.error("❌ Error al limpiar datos:", error);
+    res.status(500).json({
+      ok: false,
+      message: "Error al limpiar los datos transaccionales",
+      error: error.message,
+    });
+  }
+});
+
 export default router;

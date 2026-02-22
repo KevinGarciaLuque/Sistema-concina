@@ -30,3 +30,15 @@ node server.js
 
 
 
+MESERO → Crea orden → COCINA → LISTA → CAJERO cobra y entrega
+         (Módulo Mesero)  (Módulo Cocina)    (Módulo ÓRDENES ← Aquí)
+
+
+
+  MESERO          COCINA              CAJERO
+   |               |                   |
+Crear orden   Preparar orden      Cobra/Factura
+   ↓               ↓                   ↓
+ NUEVA  →  EN_PREPARACION  →  LISTA  →  [FACTURADA]  →  ENTREGADA
+                                              ↑              ↓
+                                         (POS cobra)    (Cajero entrega)
