@@ -83,7 +83,7 @@ async function bitacoraSafe(req, { accion, entidad, entidad_id = null, detalle =
 router.get(
   "/",
   requireAuth,
-  allowRoles("admin", "supervisor", "cajero", "cocina"),
+  allowRoles("admin", "supervisor", "cajero", "cocina", "mesero"),
   asyncHandler(async (req, res) => {
     const { estado, tipo, desde, hasta, from, to, q, pendiente_cobro, sin_facturar } = req.query;
 
@@ -197,7 +197,7 @@ router.get(
 router.get(
   "/kds",
   requireAuth,
-  allowRoles("admin", "supervisor", "cocina"),
+  allowRoles("admin", "supervisor", "cocina", "mesero"),
   asyncHandler(async (req, res) => {
     const [rows] = await exec(
       `
@@ -224,7 +224,7 @@ router.get(
 router.get(
   "/:id",
   requireAuth,
-  allowRoles("admin", "supervisor", "cajero", "cocina"),
+  allowRoles("admin", "supervisor", "cajero", "cocina", "mesero"),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     if (!isInt(id)) return res.status(400).json({ ok: false, message: "ID inválido." });

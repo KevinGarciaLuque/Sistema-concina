@@ -170,7 +170,17 @@ router.post(
 
 /* =========================================================
    POST /api/caja/cerrar
-   body: { sesion_id?, monto_cierre }
+   body: { 
+     sesion_id?, 
+     monto_cierre,
+     detalle_cierre?: {
+       efectivo: { denominaciones: {...}, subtotal },
+       transferencia: number,
+       tarjeta: number,
+       otros: number,
+       observaciones: string
+     }
+   }
    - si no mandas sesion_id, cierra la ABIERTA del usuario
 ========================================================= */
 router.post(
@@ -186,6 +196,7 @@ router.post(
       return res.status(400).json({ ok: false, message: "monto_cierre inválido." });
     }
 
+    const detalle_cierre = req.body?.detalle_cierre || null;
     const sesion_id = req.body?.sesion_id;
     let sesion;
 
@@ -222,11 +233,14 @@ router.post(
       return res.status(409).json({ ok: false, message: "La caja ya está CERRADA." });
     }
 
+    // Preparar detalle para JSON
+    const detalleJson = detalle_cierre ? JSON.stringify(detalle_cierre) : null;
+
     await exec(
       `UPDATE caja_sesiones
-       SET estado='CERRADA', fecha_cierre=NOW(), monto_cierre=?
+       SET estado='CERRADA', fecha_cierre=NOW(), monto_cierre=?, detalle_cierre=?
        WHERE id=?`,
-      [monto_cierre, Number(sesion.id)]
+      [monto_cierre, detalleJson, Number(sesion.id)]
     );
 
     await bitacoraSafe(req, {
@@ -368,6 +382,16 @@ router.get(
     const cierre = sesion.monto_cierre !== null ? Number(sesion.monto_cierre) : null;
     const diferencia = cierre !== null ? Math.round((cierre - esperadoEnCaja) * 100) / 100 : null;
 
+    // Parsear detalle_cierre si existe
+    let detalleCierre = null;
+    if (sesion.detalle_cierre) {
+      try {
+        detalleCierre = typeof sesion.detalle_cierre === 'string' 
+          ? JSON.parse(sesion.detalle_cierre) 
+          : sesion.detalle_cierre;
+      } catch {}
+    }
+
     res.json({
       ok: true,
       data: {
@@ -382,6 +406,7 @@ router.get(
           fecha_cierre: sesion.fecha_cierre,
           monto_cierre: sesion.monto_cierre !== null ? Number(sesion.monto_cierre) : null,
           created_at: sesion.created_at,
+          detalle_cierre: detalleCierre,
         },
         facturacion: {
           facturas_count: Number(factAgg?.facturas_count || 0),

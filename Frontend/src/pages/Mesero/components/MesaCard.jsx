@@ -101,7 +101,7 @@ export default function MesaCard({ mesa, onCrearOrden, onVerDetalle }) {
 
   return (
     <>
-      {/* Agregar estilos de animación */}
+      {/* Estilos de animación profesionales */}
       <style>
         {`
           @keyframes pulse-border {
@@ -112,44 +112,159 @@ export default function MesaCard({ mesa, onCrearOrden, onVerDetalle }) {
               box-shadow: 0 0 0 8px rgba(40, 167, 69, 0);
             }
           }
+
+          @keyframes shimmer {
+            0% {
+              background-position: -200% center;
+            }
+            100% {
+              background-position: 200% center;
+            }
+          }
+
+          @keyframes float {
+            0%, 100% {
+              transform: translateY(0px) scale(1);
+            }
+            50% {
+              transform: translateY(-8px) scale(1.02);
+            }
+          }
+
+          @keyframes glow {
+            0%, 100% {
+              box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            }
+            50% {
+              box-shadow: 0 8px 25px rgba(13, 110, 253, 0.25);
+            }
+          }
+
+          .mesa-card {
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+          }
+
+          .mesa-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(
+              90deg,
+              transparent 0%,
+              rgba(255, 255, 255, 0.3) 50%,
+              transparent 100%
+            );
+            background-size: 200% 100%;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+            z-index: 1;
+          }
+
+          .mesa-card:hover::before {
+            opacity: 1;
+            animation: shimmer 1.5s infinite;
+          }
+
+          .mesa-card:hover {
+            transform: translateY(-8px) scale(1.02);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15) !important;
+            border-width: 2px;
+          }
+
+          .mesa-card.ocupada:hover {
+            box-shadow: 0 12px 30px rgba(220, 53, 69, 0.25) !important;
+          }
+
+          .mesa-card.libre:hover {
+            box-shadow: 0 12px 30px rgba(25, 135, 84, 0.25) !important;
+          }
+
+          .mesa-card.lista:hover {
+            box-shadow: 0 12px 30px rgba(40, 167, 69, 0.35) !important;
+            animation: glow 2s ease-in-out infinite;
+          }
+
+          .mesa-card-content {
+            position: relative;
+            z-index: 2;
+          }
+
+          .mesa-icon-wrapper {
+            transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+          }
+
+          .mesa-card:hover .mesa-icon-wrapper {
+            transform: rotate(8deg) scale(1.1);
+          }
+
+          .mesa-badge {
+            transition: all 0.2s ease;
+          }
+
+          .mesa-card:hover .mesa-badge {
+            transform: scale(1.05);
+          }
+
+          .mesa-card-gradient-bg {
+            background: linear-gradient(
+              135deg,
+              rgba(255, 255, 255, 0.9) 0%,
+              rgba(248, 249, 250, 0.9) 100%
+            );
+            transition: all 0.3s ease;
+          }
+
+          .mesa-card:hover .mesa-card-gradient-bg {
+            background: linear-gradient(
+              135deg,
+              rgba(255, 255, 255, 1) 0%,
+              rgba(240, 242, 245, 1) 100%
+            );
+          }
         `}
       </style>
       
       <Card
-        className={`shadow-sm border rounded-4 ${
+        className={`mesa-card ${ocupada ? "ocupada" : "libre"} ${tieneOrdenLista ? "lista" : ""} shadow-sm border rounded-4 ${
           ocupada ? "border-danger" : "border-success"
         }`}
         style={{ 
-          transition: "all 0.3s",
+          transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
           height: "100%",
           display: "flex",
           flexDirection: "column",
           ...pulseStyle
         }}
       >
-      <Card.Body className="p-2 d-flex flex-column" style={{ flex: 1 }}>
+      <Card.Body className="mesa-card-content p-2 d-flex flex-column" style={{ flex: 1 }}>
         {/* Header fijo */}
         <div className="d-flex align-items-start justify-content-between mb-2">
           <div>
-            <div className="fw-bold" style={{ fontSize: 20 }}>
+            <div className="fw-bold" style={{ fontSize: 20, transition: "all 0.3s" }}>
               Mesa {numero}
             </div>
-            <div className="text-muted d-flex align-items-center gap-1" style={{ fontSize: 11 }}>
-              <FaChair size={11} /> {capacidad} personas
+            <div className="text-muted d-flex align-items-center gap-1" style={{ fontSize: 11, transition: "all 0.3s" }}>
+              <FaChair size={11} className="mesa-icon-wrapper" /> {capacidad} personas
             </div>
           </div>
 
           <div className="d-flex flex-column gap-1 align-items-end">
             {ocupada ? (
-              <Badge bg="danger" style={{ fontSize: 13 }}>Ocupada</Badge>
+              <Badge bg="danger" className="mesa-badge" style={{ fontSize: 13 }}>Ocupada</Badge>
             ) : (
-              <Badge bg="success" style={{ fontSize: 13 }}>Libre</Badge>
+              <Badge bg="success" className="mesa-badge" style={{ fontSize: 13 }}>Libre</Badge>
             )}
             
             {tieneOrdenLista && (
               <Badge 
                 bg="success" 
-                className="d-flex align-items-center gap-1" 
+                className="mesa-badge d-flex align-items-center gap-1" 
                 style={{ fontSize: 11, animation: "pulse 1.5s ease-in-out infinite" }}
               >
                 <FaCheckCircle size={10} /> LISTA
@@ -306,14 +421,14 @@ export default function MesaCard({ mesa, onCrearOrden, onVerDetalle }) {
                   padding: "4px 8px",
                   fontSize: "11px",
                   fontWeight: 600,
-                  transition: "all 0.3s"
+                  transition: "all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55)"
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = "translateY(-1px)";
-                  e.currentTarget.style.boxShadow = "0 4px 12px rgba(13, 110, 253, 0.3)";
+                  e.currentTarget.style.transform = "translateY(-2px) scale(1.02)";
+                  e.currentTarget.style.boxShadow = "0 6px 16px rgba(13, 110, 253, 0.4)";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.transform = "translateY(0) scale(1)";
                   e.currentTarget.style.boxShadow = "";
                 }}
               >
@@ -326,17 +441,18 @@ export default function MesaCard({ mesa, onCrearOrden, onVerDetalle }) {
           <>
             <div className="text-center py-2 flex-grow-1 d-flex flex-column align-items-center justify-content-center">
               <div 
-                className="rounded-circle d-inline-flex align-items-center justify-content-center mb-2"
+                className="mesa-icon-wrapper rounded-circle d-inline-flex align-items-center justify-content-center mb-2"
                 style={{
                   width: 40,
                   height: 40,
                   background: "linear-gradient(135deg, #198754 0%, #20c997 100%)",
-                  boxShadow: "0 4px 12px rgba(25, 135, 84, 0.2)"
+                  boxShadow: "0 4px 12px rgba(25, 135, 84, 0.2)",
+                  transition: "all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55)"
                 }}
               >
                 <FaUtensils className="text-white" style={{ fontSize: 18 }} />
               </div>
-              <div className="text-muted fw-semibold" style={{ fontSize: 11 }}>
+              <div className="text-muted fw-semibold" style={{ fontSize: 11, transition: "all 0.3s" }}>
                 Mesa disponible
               </div>
             </div>
@@ -350,14 +466,14 @@ export default function MesaCard({ mesa, onCrearOrden, onVerDetalle }) {
                 padding: "4px 8px",
                 fontSize: "11px",
                 fontWeight: 600,
-                transition: "all 0.3s"
+                transition: "all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55)"
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.transform = "translateY(-1px)";
-                e.currentTarget.style.boxShadow = "0 4px 12px rgba(25, 135, 84, 0.3)";
+                e.currentTarget.style.transform = "translateY(-2px) scale(1.02)";
+                e.currentTarget.style.boxShadow = "0 6px 16px rgba(25, 135, 84, 0.4)";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.transform = "translateY(0)";
+                e.currentTarget.style.transform = "translateY(0) scale(1)";
                 e.currentTarget.style.boxShadow = "";
               }}
             >
@@ -369,7 +485,7 @@ export default function MesaCard({ mesa, onCrearOrden, onVerDetalle }) {
       </Card.Body>
 
       {/* Estilos personalizados para scrollbar */}
-      <style jsx>{`
+      <style>{`
         .custom-scrollbar::-webkit-scrollbar {
           width: 6px;
         }

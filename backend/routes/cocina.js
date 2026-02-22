@@ -141,7 +141,7 @@ async function cargarDetalleOrdenes(orderIds) {
 router.get(
   "/board",
   requireAuth,
-  allowRoles("admin", "supervisor", "cocina"),
+  allowRoles("admin", "supervisor", "cocina", "mesero"),
   asyncHandler(async (req, res) => {
     const [ordenes] = await exec(
       `SELECT
@@ -182,7 +182,7 @@ router.get(
 router.get(
   "/kds",
   requireAuth,
-  allowRoles("admin", "supervisor", "cocina"),
+  allowRoles("admin", "supervisor", "cocina", "mesero"),
   asyncHandler(async (req, res) => {
     const [ordenes] = await exec(
       `SELECT
@@ -215,7 +215,7 @@ router.get(
 router.get(
   "/ordenes",
   requireAuth,
-  allowRoles("admin", "supervisor", "cocina"),
+  allowRoles("admin", "supervisor", "cocina", "mesero"),
   asyncHandler(async (req, res) => {
     const fecha = req.query.fecha ? String(req.query.fecha) : null;
     const estadosRaw = req.query.estados ? String(req.query.estados) : null;
@@ -275,7 +275,7 @@ router.get(
 router.get(
   "/ordenes/:id",
   requireAuth,
-  allowRoles("admin", "supervisor", "cocina"),
+  allowRoles("admin", "supervisor", "cocina", "mesero"),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     if (!isInt(id)) return res.status(400).json({ ok: false, message: "ID inválido." });
@@ -356,7 +356,7 @@ router.get(
 router.patch(
   "/ordenes/:id/estado",
   requireAuth,
-  allowRoles("admin", "supervisor", "cocina"),
+  allowRoles("admin", "supervisor", "cocina", "mesero"),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     const { estado, comentario = null, force = 0 } = req.body || {};

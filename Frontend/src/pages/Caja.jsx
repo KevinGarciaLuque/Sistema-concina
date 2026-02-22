@@ -24,6 +24,7 @@ import {
   FaEye,
   FaTimes,
 } from "react-icons/fa";
+import ModalCerrarCaja from "../components/caja/ModalCerrarCaja";
 
 /* ================= Helpers ================= */
 
@@ -76,6 +77,7 @@ export default function Caja() {
 
   const [busyAbrir, setBusyAbrir] = useState(false);
   const [busyCerrar, setBusyCerrar] = useState(false);
+  const [showModalCerrar, setShowModalCerrar] = useState(false);
 
   // ===== alerts =====
   const [msg, setMsg] = useState({ type: "", text: "" });
@@ -172,7 +174,7 @@ export default function Caja() {
     }
   };
 
-  const cerrarCaja = async () => {
+  const cerrarCaja = async (montoCierre, detalleCierre) => {
     const n = Number(montoCierre);
     if (!Number.isFinite(n) || n < 0) {
       setMsg({ type: "warning", text: "Monto de cierre inválido." });
@@ -185,9 +187,11 @@ export default function Caja() {
       await api.post("/caja/cerrar", {
         sesion_id: sesionActiva?.id,
         monto_cierre: n,
+        detalle_cierre: detalleCierre,
       });
       setMsg({ type: "success", text: "✅ Caja cerrada correctamente." });
       setMontoCierre("");
+      setShowModalCerrar(false);
       await loadSesionActiva();
       await loadSesionesAdmin();
     } catch (e) {
@@ -362,28 +366,19 @@ export default function Caja() {
                           Cerrar caja
                         </div>
 
-                        <InputGroup className="mb-2">
-                          <InputGroup.Text>L</InputGroup.Text>
-                          <Form.Control
-                            type="number"
-                            step="0.01"
-                            placeholder="Monto de cierre"
-                            value={montoCierre}
-                            onChange={(e) => setMontoCierre(e.target.value)}
-                          />
-                          <Button
-                            variant="danger"
-                            onClick={cerrarCaja}
-                            disabled={busyCerrar}
-                            className="d-inline-flex align-items-center gap-2"
-                          >
-                            {busyCerrar ? <Spinner size="sm" animation="border" /> : <FaLock />}
-                            Cerrar
-                          </Button>
-                        </InputGroup>
+                        <Button
+                          variant="danger"
+                          onClick={() => setShowModalCerrar(true)}
+                          disabled={busyCerrar}
+                          className="w-100 d-flex align-items-center justify-content-center gap-2 py-3"
+                          style={{ fontWeight: 600 }}
+                        >
+                          {busyCerrar ? <Spinner size="sm" animation="border" /> : <FaLock />}
+                          Realizar Cierre de Caja
+                        </Button>
 
-                        <div className="text-muted small">
-                          Consejo: usa el **cuadre** (esperado en caja) que te muestra el resumen.
+                        <div className="text-muted small mt-2 text-center">
+                          Se abrirá un formulario para el conteo detallado de efectivo y otros métodos de pago.
                         </div>
                       </div>
                     </>
@@ -777,6 +772,107 @@ export default function Caja() {
                   </Table>
                 </Col>
               </Row>
+
+              {/* Detalle de Cierre (si está disponible) */}
+              {resumenModal.sesion?.detalle_cierre && (
+                <>
+                  <hr />
+                  <div className="fw-bold mb-3">📊 Detalle del Cierre</div>
+                  
+                  <Alert variant="light" className="border">
+                    <Row className="g-3">
+                      {/* Efectivo con denominaciones */}
+                      {resumenModal.sesion.detalle_cierre.efectivo && (
+                        <Col md={6}>
+                          <div className="fw-semibold mb-2 text-success">💵 Efectivo Contado</div>
+                          {Object.keys(resumenModal.sesion.detalle_cierre.efectivo.denominaciones || {}).length > 0 ? (
+                            <>
+                              <Table size="sm" className="mb-2">
+                                <tbody>
+                                  {Object.entries(resumenModal.sesion.detalle_cierre.efectivo.denominaciones)
+                                    .sort(([a], [b]) => Number(b) - Number(a))
+                                    .map(([valor, cantidad]) => (
+                                      <tr key={valor}>
+                                        <td>L {Number(valor).toFixed(2)}</td>
+                                        <td className="text-center">× {cantidad}</td>
+                                        <td className="text-end fw-semibold">
+                                          {money(Number(valor) * Number(cantidad))}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                </tbody>
+                                <tfoot className="table-light">
+                                  <tr>
+                                    <td colSpan="2" className="fw-bold">Total:</td>
+                                    <td className="text-end fw-bold">
+                                      {money(resumenModal.sesion.detalle_cierre.efectivo.subtotal)}
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              </Table>
+                            </>
+                          ) : (
+                            <small className="text-muted">Sin denominaciones registradas</small>
+                          )}
+                        </Col>
+                      )}
+
+                      {/* Otros métodos */}
+                      <Col md={6}>
+                        <div className="fw-semibold mb-2 text-primary">💳 Otros Métodos</div>
+                        <Table size="sm">
+                          <tbody>
+                            {resumenModal.sesion.detalle_cierre.transferencia > 0 && (
+                              <tr>
+                                <td>Transferencias</td>
+                                <td className="text-end fw-semibold">
+                                  {money(resumenModal.sesion.detalle_cierre.transferencia)}
+                                </td>
+                              </tr>
+                            )}
+                            {resumenModal.sesion.detalle_cierre.tarjeta > 0 && (
+                              <tr>
+                                <td>Tarjetas</td>
+                                <td className="text-end fw-semibold">
+                                  {money(resumenModal.sesion.detalle_cierre.tarjeta)}
+                                </td>
+                              </tr>
+                            )}
+                            {resumenModal.sesion.detalle_cierre.otros > 0 && (
+                              <tr>
+                                <td>Otros</td>
+                                <td className="text-end fw-semibold">
+                                  {money(resumenModal.sesion.detalle_cierre.otros)}
+                                </td>
+                              </tr>
+                            )}
+                            {!resumenModal.sesion.detalle_cierre.transferencia && 
+                             !resumenModal.sesion.detalle_cierre.tarjeta && 
+                             !resumenModal.sesion.detalle_cierre.otros && (
+                              <tr>
+                                <td colSpan="2" className="text-muted small">Sin otros métodos</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </Table>
+                      </Col>
+
+                      {/* Observaciones */}
+                      {resumenModal.sesion.detalle_cierre.observaciones && (
+                        <Col xs={12}>
+                          <div className="fw-semibold mb-1">📝 Observaciones:</div>
+                          <div 
+                            className="p-2 bg-light rounded small" 
+                            style={{ fontStyle: "italic" }}
+                          >
+                            {resumenModal.sesion.detalle_cierre.observaciones}
+                          </div>
+                        </Col>
+                      )}
+                    </Row>
+                  </Alert>
+                </>
+              )}
             </>
           )}
         </Modal.Body>
@@ -792,6 +888,16 @@ export default function Caja() {
           </Button>
         </Modal.Footer>
       </Modal>
+
+      {/* ===== Modal Cerrar Caja con Denominaciones ===== */}
+      <ModalCerrarCaja
+        show={showModalCerrar}
+        onHide={() => setShowModalCerrar(false)}
+        resumenActiva={resumenActiva}
+        sesionActiva={sesionActiva}
+        onConfirmarCierre={cerrarCaja}
+        loading={busyCerrar}
+      />
     </Container>
   );
 }

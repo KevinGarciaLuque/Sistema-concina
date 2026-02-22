@@ -110,6 +110,7 @@ export default function Login() {
 
       if (user.rol === "cocina") navigate("/cocina");
       else if (user.rol === "cajero") navigate("/pos");
+      else if (user.rol === "mesero") navigate("/mesero");
       else navigate("/dashboard");
     } catch (err) {
       setMsg(
